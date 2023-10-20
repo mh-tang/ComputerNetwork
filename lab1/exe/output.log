@@ -1,0 +1,34 @@
+***************Chat Room****************
+
+========================================
+  2023-10-20 11:18:45
+[system]: 't1' connect successfully!
+  2023-10-20 11:18:56
+[system]: 't2' connect successfully!
+  2023-10-20 11:18:59
+[t2]: hi t1 (to 't1')
+***************Chat Room****************
+
+========================================
+  2023-10-20 11:19:16
+[system]: 't1' connect successfully!
+  2023-10-20 11:19:25
+[system]: 't2' connect successfully!
+  2023-10-20 11:19:35
+[system]: 't3' connect successfully!
+  2023-10-20 11:19:36
+[t3]: hi (to 'all')
+  2023-10-20 11:19:49
+[t2]: i can here t3 (to 't1')
+  2023-10-20 11:19:59
+[t1]: but he cannot here you (to 'all')
+  2023-10-20 11:20:02
+[system]: 't1' has disconnected from the server. 
+  2023-10-20 11:20:07
+[t3]: what? (to 'all')
+  2023-10-20 11:20:09
+[system]: 't3' has disconnected from the server. 
+  2023-10-20 11:20:13
+[system]: 't2' has disconnected from the server. 
+The server is closed. 
+
