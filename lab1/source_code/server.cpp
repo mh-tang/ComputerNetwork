@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include <fstream>
+#include <time.h>
 
 using namespace std;
 // 链接库
