@@ -24,14 +24,14 @@ SOCKET client;
 int slen = sizeof(server_addr);
 int rlen = sizeof(router_addr);
 
-char* message = new char[100000000];
+char* message = new char[10000000];
 char* filename = new char[30];
 unsigned long long int messagelength = 0;  // 最后传输的下标
 unsigned long long int messagepointer = 0;  // 下一个传输位置
 
 // 常量设置
-u_long unlockmode = 1;
-u_long lockmode = 0;
+u_long unblockmode = 1;
+u_long blockmode = 0;
 const unsigned char MAX_DATA_LENGTH = 0xff;
 const u_short SOURCE_IP = 0x7f01;
 const u_short DES_IP = 0x7f01;
@@ -52,8 +52,8 @@ const int MAX_TIME = 0.5*CLOCKS_PER_SEC;  // 最大传输延迟时间
 struct Header {
     u_short checksum;  // 16位校验和
     u_short seq;  // 16位序列号，rdt3.0，只有最低位0和1两种状态
-    u_short ack;  // 16位ack号
-    u_short flag;  // 16位状态位 FC,FIN,OVER,FIN,ACK,SYN
+    u_short ack;  // 16位ack号，ack用来做确认
+    u_short flag;  // 16位状态位 FIN,OVER,FIN,ACK,SYN
     u_short length;  // 16位长度位
     u_short source_ip;  // 16位源ip地址
     u_short des_ip;  // 16位目的ip地址
@@ -73,7 +73,7 @@ struct Header {
     }
 };
 
-// 全局时钟设置
+// 全局时钟
 clock_t veryBegin;
 clock_t ALLEND;
 
@@ -154,7 +154,7 @@ int connect() {  // 三次握手连接
     char* shakeRBuffer = new char[sizeof(header)];
     char* shakeSBuffer = new char[sizeof(header)];
     // 将套接字设置为非阻塞模式 TODO：check
-    ioctlsocket(client, FIONBIO, &unlockmode);
+    ioctlsocket(client, FIONBIO, &unblockmode);
 
     // 第一次握手
     setHeader(header, SYN, 0, 0, 0);
@@ -249,8 +249,9 @@ int loadFile() {  // 读取文件
     return 0;
 }
 
-void getTheMessage(Header &header, int length, int seq, char* sendBuffer){  // 辅助函数，填充数据包
+void getTheMessage(Header &header, int length, int seq, int ack, char* sendBuffer){  // 辅助函数，填充数据包
     header.seq = seq;  // 序列号
+    header.ack = ack;  // 确认号
     header.length = length;  // 数据长度
     memset(sendBuffer, 0, sizeof(header) + MAX_DATA_LENGTH);  // sendbuffer置零
     memcpy(sendBuffer, &header, sizeof(header));  // 拷贝数据头
@@ -260,32 +261,79 @@ void getTheMessage(Header &header, int length, int seq, char* sendBuffer){  // �
     memcpy(sendBuffer, &header, sizeof(header));  // 填充校验和（struct连续存储）
 }
 
-int sendMessage() {  // 发送数据
+int endSend() {  // 发送结束信号
+    ALLEND = clock();
+    Header header;
+    ioctlsocket(client, FIONBIO, &unblockmode);
+    char* sendbuffer = new char[sizeof(header)+MAX_DATA_LENGTH];
+    char* recvbuffer = new char[sizeof(header)];
+
+    // 设置数据报
+    memset(sendbuffer, 0, sizeof(header)+MAX_DATA_LENGTH);
+    header.flag = OVER;
+    header.length = strlen(filename);
+    header.checksum = getCkSum((u_short*)&header, sizeof(header));
+    memcpy(sendbuffer, &header, sizeof(header));
+    // 文件名放在末尾
+    memcpy(sendbuffer + sizeof(header), filename, strlen(filename));
+
+    if (sendto(client, sendbuffer,(sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+        cout << "[FAILED]数据包发送失败" << endl;
+        return -1;
+    }
+    cout << "[END]结束信号发送成功" << endl;
+    clock_t start = clock();
+
+    while(true){
+        while (recvfrom(client, recvbuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen) <= 0) {
+            if (clock() - start > MAX_TIME) {
+                cout<<"[FAILED]数据包确认超时，重传"<<endl;
+                if (sendto(client, sendbuffer, (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                    cout << "[FAILED]数据包发送失败" << endl;
+                    return -1;
+                }
+                start = clock();
+            }
+        }
+        memcpy(&header, recvbuffer, sizeof(header));
+        if (header.flag == OVER_ACK && check((u_short*)&header, sizeof(header)) == 0) {
+            cout << "[END]结束发送" << endl;
+            break;
+        }
+        else
+            cout << "[FAILED]数据包错误，等待重传" << endl;
+    }
+    delete sendbuffer;
+    delete recvbuffer;
+    return 1;
+}
+
+int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
     veryBegin = clock();
     // 设置为非阻塞模式
-    ioctlsocket(client, FIONBIO, &unlockmode);
+    ioctlsocket(client, FIONBIO, &unblockmode);
     Header header;
     char* recvbuffer = new char[sizeof(header)];
     char* sendbuffer = new char[sizeof(header) + MAX_DATA_LENGTH];
-    int seq = 0;
+    int clientSeq = 0, serverSeq = 1;  // 客户端和服务端的序号
 
     while (true) {
         int thisTimeLength;  // 本次数据传输长度
         if (messagepointer > messagelength) {  // 发送完毕
             delete recvbuffer;
             delete sendbuffer;
-            if (endsend() == 1)
+            if (endSend() == 1)
                 return 1;
             return -1;
         }
         if (messagelength - messagepointer >= MAX_DATA_LENGTH)  // 可以按照最大限度发送
             thisTimeLength = MAX_DATA_LENGTH;
         else 
-            thisTimeLength = messagelength - messagepointer + 1;  // 计算发送长度
-        getTheMessage(header,thisTimeLength,seq,sendbuffer);
+            thisTimeLength = messagelength - messagepointer + 1;  // 计算有效数据长度
+        getTheMessage(header,thisTimeLength,clientSeq,serverSeq,sendbuffer);
 
-        // 发送数据包
-        cout << "[SEND]准备发送" << seq << "号数据包，数据包大小:" << thisTimeLength<<" ";
+        // 发送数据包，补满数据包一起发送
+        cout << "[SEND]准备发送" << clientSeq << "号数据包，数据包大小:" << thisTimeLength<<" ";
         cout << "数据包校验和：" << check((u_short*)sendbuffer, sizeof(header) + MAX_DATA_LENGTH) << endl;
 
         if (sendto(client, sendbuffer, (sizeof(header) + MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
@@ -300,8 +348,7 @@ int sendMessage() {  // 发送数据
             if(getData > 0){
                 // 检查ACK
                 memcpy(&header, recvbuffer, sizeof(header));
-                //cout << "[SEND]接受到的ack：" << header.ack << " 校验和：" << check((u_short*)&header, sizeof(header)) << endl;
-                if (header.ack == seq && check((u_short*)&header, sizeof(header) == 0)) {
+                if (header.ack == clientSeq && check((u_short*)&header, sizeof(header) == 0)) {
                     cout << "[SEND]接受服务端ACK，准备发送下一数据包" << endl;
                     break;
                 }
@@ -316,65 +363,16 @@ int sendMessage() {  // 发送数据
             }
         }
         // 转变序号
-        if(seq == 0)
-            seq = 1;
-        else
-            seq = 0;
+        clientSeq = (clientSeq+1)%2;
+        serverSeq = (serverSeq+1)%2;
     }
-}
-
-int endsend() {  // 发送结束信号
-    ALLEND = clock();
-    Header header;
-    ioctlsocket(client, FIONBIO, &unlockmode);
-    char* sendbuffer = new char[sizeof(header)+MAX_DATA_LENGTH];
-    char* recvbuffer = new char[sizeof(header)];
-
-    // 设置数据报
-    memset(sendbuffer, 0, sizeof(header)+MAX_DATA_LENGTH);
-    header.flag = OVER;
-    header.length = strlen(filename);
-    header.checksum = getCkSum((u_short*)&header, sizeof(header));
-    memcpy(sendbuffer, &header, sizeof(header));
-    // 文件名放在末尾
-    memcpy(sendbuffer + sizeof(header), filename, strlen(filename));
-
-    if (sendto(client, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-        cout << "[FAILED]数据包发送失败" << endl;
-        return -1;
-    }
-    cout << "[END]结束信号发送成功" << endl;
-    clock_t start = clock();
-
-    while(true){
-        while (recvfrom(client, recvbuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen) <= 0) {
-            if (clock() - start > MAX_TIME) {
-                cout<<"[FAILED]数据包确认超时，重传"<<endl;
-                if (sendto(client, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                    cout << "[FAILED]数据包发送失败" << endl;
-                    return -1;
-                }
-                start = clock();
-            }
-        }
-        memcpy(&header, recvbuffer, sizeof(header));
-        if (header.flag == OVER_ACK && check((u_short*)&header, sizeof(header)) == 0) {
-            cout << "[END]传输结束消息发送成功" << endl;
-            break;
-        }
-        else
-            cout << "[FAILED]数据包错误，等待重传" << endl;
-    }
-    delete sendbuffer;
-    delete recvbuffer;
-    return 1;
 }
 
 int disconnect() {  // 四次挥手断开连接
     Header header;
     char* sendbuffer = new char[sizeof(header)];
     char* recvbuffer = new char[sizeof(header)];
-    ioctlsocket(client, FIONBIO, &unlockmode);
+    ioctlsocket(client, FIONBIO, &unblockmode);
     setHeader(header, FIN, 0, 0, 0);
 
     memcpy(sendbuffer, &header, sizeof(header));
