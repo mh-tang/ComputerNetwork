@@ -24,15 +24,15 @@ SOCKET client;
 int slen = sizeof(server_addr);
 int rlen = sizeof(router_addr);
 
-char* message = new char[10000000];
-char* filename = new char[30];
+char* message = new char[100000000];
+char* filename = new char[100];
 unsigned long long int messagelength = 0;  // 最后传输的下标
 unsigned long long int messagepointer = 0;  // 下一个传输位置
 
 // 常量设置
 u_long unblockmode = 1;
 u_long blockmode = 0;
-const unsigned char MAX_DATA_LENGTH = 0xff;
+const unsigned short MAX_DATA_LENGTH = 0x3FF;
 const u_short SOURCE_IP = 0x7f01;
 const u_short DES_IP = 0x7f01;
 const u_short SOURCE_PORT = 8887;  // 客户端端口号：8887
@@ -228,11 +228,9 @@ int connect() {  // 三次握手连接
 }
 
 int loadFile() {  // 读取文件
-    string file ;
     cout << "[INPUT]要传输的文件：" << endl;
-    cin >> file;
-    strcpy(filename, file.c_str());
-    ifstream fin(file.c_str(), ifstream::binary);
+    cin>>filename;
+    ifstream fin(filename, ifstream::binary);
     unsigned long long int index = 0;
     unsigned char temp = fin.get();
     // 循环读取文件
@@ -268,10 +266,10 @@ int endSend(int seq) {  // 发送结束信号
     // 设置数据报
     header.flag = OVER;
     header.seq = seq;
-    header.length = sizeof(filename);
+    header.length = strlen(filename);
     memset(sendbuffer, 0, sizeof(header) + MAX_DATA_LENGTH);  // sendbuffer置零
     memcpy(sendbuffer, &header, sizeof(header));  // 拷贝数据头
-    memcpy(sendbuffer + sizeof(header), filename, sizeof(filename));  // 拷贝文件名
+    memcpy(sendbuffer + sizeof(header), filename, strlen(filename));  // 拷贝文件名
     header.checksum = getCkSum((u_short*)sendbuffer, sizeof(header)+MAX_DATA_LENGTH);  // 计算校验和
     memcpy(sendbuffer, &header, sizeof(header));  // 填充校验和（struct连续存储）
     cout<<"[END]发送结束信号，CheckSum："<<header.checksum<<endl;
@@ -280,7 +278,6 @@ int endSend(int seq) {  // 发送结束信号
         cout << "[FAILED]数据包发送失败" << endl;
         return -1;
     }
-    cout << "[END]结束信号发送成功" << endl;
     clock_t start = clock();
 
     while(true){
@@ -318,7 +315,7 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
 
     while (true) {
         int thisTimeLength;  // 本次数据传输长度
-        if (messagepointer > messagelength) {  // 发送完毕
+        if (messagepointer >= messagelength) {  // 发送完毕
             delete recvbuffer;
             delete sendbuffer;
             if (endSend(clientSeq) == 1)
@@ -439,7 +436,7 @@ int disconnect() {  // 三次挥手断开连接
 
 void printLog() {  // 打印日志
     cout << "             --------------传输日志--------------" << endl;
-    cout << "报文总长度：" << messagepointer << "字节，分为" << (messagepointer / 256) + 1 << "个报文段分别转发" << endl;
+    cout << "报文总长度：" << messagepointer << "字节，分为" << (messagepointer / 1024) + 1 << "个报文段分别转发" << endl;
     double t = (ALLEND - veryBegin) / CLOCKS_PER_SEC;
     cout << "传输用时：" <<t <<"秒"<< endl;
     t = messagepointer / t;

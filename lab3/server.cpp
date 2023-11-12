@@ -21,15 +21,15 @@ SOCKADDR_IN client_addr;
 int clen = sizeof(client_addr);
 int rlen = sizeof(router_addr);
 
-char* message = new char[10000000];
-char* filename = new char[30];
+char* message = new char[100000000];
+char* filename = new char[100];
 unsigned long long int messagepointer;
 
 
 // 常数设置
 u_long blockmode = 0;
 u_long unblockmode = 1;
-const unsigned char MAX_DATA_LENGTH = 0xff;
+const unsigned short MAX_DATA_LENGTH = 0x3FF;
 const u_short SOURCE_IP = 0x7f01;
 const u_short DES_IP = 0x7f01;
 const u_short SOURCE_PORT = 8888;  // 源端口8888
@@ -210,16 +210,16 @@ int connect() {  // 三次握手连接
 }
 
 int dumpFile() {  // 保存文件
-    char* rfilename = new char[32];
+    char* rfilename = new char[102];
     sprintf(rfilename, "r_%s", filename);
-    cout << "[STORE]文件将被保存为 "<<rfilename << endl;
+    cout << "             --------------传输结束--------------"<<endl;
     ofstream fout(rfilename, ofstream::binary);
     for (int i = 0; i < messagepointer; i++)
     {
         fout << message[i];
     }
     fout.close();
-    cout << "[STORE]文件已保存" << endl;
+    cout << "文件已被保存为 "<<rfilename << endl;
     return 0;
 }
 
@@ -247,12 +247,15 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
     char* recvbuffer = new char[sizeof(header) + MAX_DATA_LENGTH];
     char* sendbuffer = new char[sizeof(header)];
     int clientSeq = 0, serverSeq = 1;
+    clock_t start = clock();
 
     // 接受数据
     while (true) {
+        bool sendACK = false;
         // 等待接收数据
         int getData = recvfrom(server, recvbuffer, sizeof(header) + MAX_DATA_LENGTH, 0, (sockaddr*)&router_addr, &rlen);
         if(getData > 0){
+            start=clock();
             memcpy(&header, recvbuffer, sizeof(header));  // 给数据头赋值
             cout<<"[RECEIVE]收到"<<header.seq<<"号数据包，CheckSum："<<header.checksum<<endl;
 
@@ -289,15 +292,17 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
                 cout << "[FAILED]ACK发送失败" << endl;
                 return -1;
             }
-            
+            sendACK = true;
         }
-        if (clock() - veryBegin > 60 * CLOCKS_PER_SEC) {
+        if (clock() - start > 10 * CLOCKS_PER_SEC) {
             cout << "[ERROR]连接超时，自动断开" << endl;
             return -1;
         }
-        // 转变序号
-        clientSeq = (clientSeq + 1) % 2;
-        serverSeq = (serverSeq + 1) % 2;
+        if(sendACK){
+            // 转变序号
+            clientSeq = (clientSeq + 1) % 2;
+            serverSeq = (serverSeq + 1) % 2;
+        }
     }
 }
 
