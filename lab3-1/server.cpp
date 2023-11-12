@@ -34,7 +34,7 @@ const u_short SOURCE_IP = 0x7f01;
 const u_short DES_IP = 0x7f01;
 const u_short SOURCE_PORT = 8888;  // 源端口8888
 const u_short DES_PORT = 8887;  // 客户端端口号8887
-// FIN,OVER,FIN,ACK,SYN
+
 const unsigned char SYN = 0x1;  // 00000001
 const unsigned char ACK = 0x2;  // 00000010
 const unsigned char SYN_ACK = 0x3;  // 00000011

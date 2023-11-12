@@ -37,7 +37,7 @@ const u_short SOURCE_IP = 0x7f01;
 const u_short DES_IP = 0x7f01;
 const u_short SOURCE_PORT = 8887;  // 客户端端口号：8887
 const u_short DES_PORT = 8888;  // 服务端端口号：8888
-// FIN,OVER,FIN,ACK,SYN
+
 const unsigned char SYN = 0x1;  // 00000001
 const unsigned char ACK = 0x2;  // 00000010
 const unsigned char SYN_ACK = 0x3;  // 00000011
@@ -145,7 +145,7 @@ int connect() {  // 三次握手连接
     Header header;
     char* shakeRBuffer = new char[sizeof(header)];
     char* shakeSBuffer = new char[sizeof(header)];
-    // 将套接字设置为非阻塞模式 TODO：check
+    // 将套接字设置为非阻塞模式
     ioctlsocket(client, FIONBIO, &unblockmode);
 
     // 第一次握手
