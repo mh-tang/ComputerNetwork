@@ -170,7 +170,7 @@ int connect() {  // 三次握手连接
     }
 
     // 发送第二次握手
-    setHeader(header,SYN_ACK,0,(header.seq + 1) % 2,0);
+    setHeader(header,SYN_ACK,0,header.seq,0);
     memcpy(shakeSBuffer, &header, sizeof(header));
     if (sendto(server, shakeSBuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
         cout << "[FAILED]第二次握手发送失败" << endl;
@@ -210,14 +210,16 @@ int connect() {  // 三次握手连接
 }
 
 int dumpFile() {  // 保存文件
-    cout << "[STORE]文件将被保存为"<<filename << endl;
-    ofstream fout(filename, ofstream::binary);
+    char* rfilename = new char[32];
+    sprintf(rfilename, "r_%s", filename);
+    cout << "[STORE]文件将被保存为 "<<rfilename << endl;
+    ofstream fout(rfilename, ofstream::binary);
     for (int i = 0; i < messagepointer; i++)
     {
         fout << message[i];
     }
     fout.close();
-    cout << "[STORE]文件已成功下载到本地" << endl;
+    cout << "[STORE]文件已保存" << endl;
     return 0;
 }
 
@@ -232,7 +234,7 @@ int endReceive() {  // 发送OVER_ACK信号
         return -1;
     }
     // 在disconnect检测，如果收到的是OVER，就再重传一次OVER_ACK
-    cout << "[END]文件接收完毕" << endl;
+    cout << "[END]"<<filename<<"接收完毕" << endl;
     delete sendbuffer;
     return 1;
 }
@@ -252,6 +254,8 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
         int getData = recvfrom(server, recvbuffer, sizeof(header) + MAX_DATA_LENGTH, 0, (sockaddr*)&router_addr, &rlen);
         if(getData > 0){
             memcpy(&header, recvbuffer, sizeof(header));  // 给数据头赋值
+            cout<<"[RECEIVE]收到"<<header.seq<<"号数据包，CheckSum："<<header.checksum<<endl;
+
             // 检验数据包是否正确
             if(header.seq == clientSeq && check((u_short*)recvbuffer,sizeof(header)+MAX_DATA_LENGTH)==0){  // 数据包正确
                 cout << "[RECEIVE]成功接受"<<clientSeq<<"号数据包" << endl;
@@ -265,9 +269,12 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
                     return -1;
                 }
                 memcpy(message + messagepointer, recvbuffer + sizeof(header), header.length);
+                // for(int i = 0; i < header.length; i++)
+                //     cout << message[messagepointer + i];
+                // cout << endl;
                 messagepointer += header.length;
             }
-            else{  // 数据包错误，重传上一次ACK
+            else{  // 数据包错误/冗余，重传上一次ACK
                 cout << "[FAILED]数据包错误，等待重传" << endl;
                 if(sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR){
                     cout << "[FAILED]ACK发送失败" << endl;
@@ -294,76 +301,80 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
     }
 }
 
-int disconnect() {
+int disconnect() {  // 三次挥手断开连接
     Header header;
     char* sendbuffer = new char[sizeof(header)];
     char* recvbuffer = new char[sizeof(header)];
-    // TODO：确认OVER_ACK已经收到
-
-RECVWAVE1:
-    while(recvfrom(server,recvbuffer,sizeof(header),0,(sockaddr*)&router_addr,&rlen)<=0){}
-    memcpy(&header, recvbuffer, sizeof(header));
-    if (header.flag == FIN && check((u_short*)&header, sizeof(header)) == 0) {
-        cout << "收到第一次挥手信息" << endl;
-    }
-    else {
-        cout << "第一次挥手消息接收失败" << endl;
-        goto RECVWAVE1;
-    }
- SEND2:
-    header.seq = 0;
-    header.flag = ACK;
-    header.checksum = getCkSum((u_short*)&header, sizeof(header));
-    memcpy(sendbuffer, &header, sizeof(header));
-    if (sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == -1) {
-        cout << "第二次挥手消息发送失败..." << endl;
-        return -1;
-    }
-    Sleep(80);
-SEND3:
-    header.seq = 1;
-    header.flag = FIN_ACK;
-    header.checksum = getCkSum((u_short*)&header, sizeof(header));
-    memcpy(sendbuffer, &header, sizeof(header));
-    if (sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == -1) {
-        cout << "第三次挥手消息发送失败..." << endl;
-        return -1;
-    }
     clock_t start = clock();
-    ioctlsocket(server, FIONBIO, &unblockmode);
-    while (recvfrom(server, recvbuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen) <= 0) {
-        if (clock() - start > MAX_TIME) {
-            cout << "第四次挥手消息接收延迟...准备重发二三次挥手" << endl;
-            ioctlsocket(server, FIONBIO, &blockmode);
-            goto SEND2;
+    
+    while(true){
+        int getData = recvfrom(server, recvbuffer, sizeof(header) + MAX_DATA_LENGTH, 0, (sockaddr*)&router_addr, &rlen);
+        if(getData > 0){
+            memcpy(&header, recvbuffer, sizeof(header));
+            // 如果收到的是OVER，就再重传一次OVER_ACK
+            if(header.flag == OVER){
+                if(check((u_short*)recvbuffer,sizeof(header)+MAX_DATA_LENGTH) == 0){
+                    cout << "[END]重传OVER_ACK" << endl;
+                    endReceive();
+                }
+                continue;
+            }
+            // 收到第一次挥手信息
+            else if(header.flag == FIN && check((u_short*)&header, sizeof(header)) == 0){
+                cout << "[DISCNNECT]收到第一次挥手信息" << endl;
+                break;
+            }
+        }
+        if(clock() - start > 20 * CLOCKS_PER_SEC){
+            cout << "[ERROR]连接超时，自动断开" << endl;
+            return -1;
         }
     }
-SEND5:
-    memcpy(&header, recvbuffer, sizeof(header));
-    if (header.flag == ACK && check((u_short*)&header, sizeof(header)) == 0) {
-        header.seq = 0;
-        //header.flag = FINAL_CHECK;
-        header.checksum = getCkSum((u_short*)&header, sizeof(header));
-        memcpy(sendbuffer, &header, sizeof(header));
-        sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen);
-        cout << "成功发送确认报文" << endl;
+
+    // 发送第二次挥手信息
+    setHeader(header,FIN_ACK,0,0,0);
+    memcpy(sendbuffer, &header, sizeof(header));
+    if (sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+        cout << "[FAILED]第二次挥手信息发送失败" << endl;
+        return -1;
     }
+    cout << "[DISCNNECT]发送第二次挥手信息" << endl;
+
     start = clock();
-    while (recvfrom(server, recvbuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen) <= 0) {
-        if (clock() - start > 10 * MAX_TIME) {
-            cout << "四次挥手结束，已经断开连接" << endl;
-            return 1;
+    while(true){
+        // 等待第三次挥手信息
+        int getData = recvfrom(server, recvbuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen);
+        if(getData > 0){
+            memcpy(&header, recvbuffer, sizeof(header));
+            // 第三次挥手ACK已经收到
+            if(header.flag == ACK && check((u_short*)&header, sizeof(header)) == 0){
+                cout << "[DISCNNECT]收到第三次挥手信息" << endl;
+                break;
+            }
+        }
+        // 超时重传第二次挥手信息
+        if(clock() - start > MAX_TIME){
+            cout << "[FAILED]重传第二次挥手" << endl;
+            if (sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                cout << "[FAILED]第二次挥手信息发送失败" << endl;
+                return -1;
+            }
+            start = clock();
         }
     }
-    goto SEND5;
+    cout<<"[DISCNNECT]连接已断开"<<endl;
+
+    delete sendbuffer;
+    delete recvbuffer;
+    return 1;
 }
 
 int main() {
     init();
     connect();
     receiveMessage();
-    dumpFile();
     disconnect();
+    dumpFile();
     system("pause");
     return 0;
 }

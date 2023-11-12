@@ -78,10 +78,8 @@ clock_t veryBegin;
 clock_t ALLEND;
 
 
-// sizeof返回内存字节数 ushort是16位2字节，所以需要把size向上取整
+//sizeof返回内存字节数 ushort是16位2字节，所以需要把size向上取整
 u_short getCkSum(u_short* mes, int size) {
-    // TODO：check
-    // 计算16位校验和
     int count = (size + 1) / 2;
     u_short* buf = (u_short*)malloc(size + 1);
     memset(buf, 0, size + 1);
@@ -90,8 +88,8 @@ u_short getCkSum(u_short* mes, int size) {
     buf += 1;
     count -= 1;
     while (count--) {
-        sum += *(buf++);
-        if (sum & 0xffff0000) {  // 溢出则回卷
+        sum += *buf++;
+        if (sum & 0xffff0000) {
             sum &= 0xffff;
             sum++;
         }
@@ -105,10 +103,10 @@ u_short check(u_short* mes, int size) {
     memset(buf, 0, size + 1);
     memcpy(buf, mes, size);
     u_long sum = 0;
-    //buf += 0;
-    //count -= 0;
+    //buf += 2;
+    //count -= 2;
     while (count--) {
-        sum += *(buf++);
+        sum += *buf++;
         if (sum & 0xffff0000) {
             sum &= 0xffff;
             sum++;
@@ -197,7 +195,7 @@ int connect() {  // 三次握手连接
     }
 
     // 发送第三次握手
-    setHeader(header, ACK, 1, 1, 0);
+    setHeader(header, ACK, 1, 0, 0);
     memcpy(shakeSBuffer, &header, sizeof(header));
     if (sendto(client, shakeSBuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
         cout << "[FAILED]第三次握手失败" << endl;
@@ -261,21 +259,22 @@ void getTheMessage(Header &header, int length, int seq, int ack, char* sendBuffe
     memcpy(sendBuffer, &header, sizeof(header));  // 填充校验和（struct连续存储）
 }
 
-int endSend() {  // 发送结束信号
-    ALLEND = clock();
+int endSend(int seq) {  // 发送结束信号
     Header header;
     ioctlsocket(client, FIONBIO, &unblockmode);
     char* sendbuffer = new char[sizeof(header)+MAX_DATA_LENGTH];
     char* recvbuffer = new char[sizeof(header)];
 
     // 设置数据报
-    memset(sendbuffer, 0, sizeof(header)+MAX_DATA_LENGTH);
     header.flag = OVER;
-    header.length = strlen(filename);
-    header.checksum = getCkSum((u_short*)&header, sizeof(header));
-    memcpy(sendbuffer, &header, sizeof(header));
-    // 文件名放在末尾
-    memcpy(sendbuffer + sizeof(header), filename, strlen(filename));
+    header.seq = seq;
+    header.length = sizeof(filename);
+    memset(sendbuffer, 0, sizeof(header) + MAX_DATA_LENGTH);  // sendbuffer置零
+    memcpy(sendbuffer, &header, sizeof(header));  // 拷贝数据头
+    memcpy(sendbuffer + sizeof(header), filename, sizeof(filename));  // 拷贝文件名
+    header.checksum = getCkSum((u_short*)sendbuffer, sizeof(header)+MAX_DATA_LENGTH);  // 计算校验和
+    memcpy(sendbuffer, &header, sizeof(header));  // 填充校验和（struct连续存储）
+    cout<<"[END]发送结束信号，CheckSum："<<header.checksum<<endl;
 
     if (sendto(client, sendbuffer,(sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
         cout << "[FAILED]数据包发送失败" << endl;
@@ -322,7 +321,7 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
         if (messagepointer > messagelength) {  // 发送完毕
             delete recvbuffer;
             delete sendbuffer;
-            if (endSend() == 1)
+            if (endSend(clientSeq) == 1)
                 return 1;
             return -1;
         }
@@ -333,8 +332,8 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
         getTheMessage(header,thisTimeLength,clientSeq,serverSeq,sendbuffer);
 
         // 发送数据包，补满数据包一起发送
-        cout << "[SEND]准备发送" << clientSeq << "号数据包，数据包大小:" << thisTimeLength<<" ";
-        cout << "数据包校验和：" << check((u_short*)sendbuffer, sizeof(header) + MAX_DATA_LENGTH) << endl;
+        cout << "[SEND]准备发送" << clientSeq << "号数据包，数据包大小：" << thisTimeLength<<"，";
+        cout << "CheckSum："<<header.checksum<<endl;
 
         if (sendto(client, sendbuffer, (sizeof(header) + MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
             cout << "[FAILED]数据包发送失败" << endl;
@@ -368,7 +367,8 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
     }
 }
 
-int disconnect() {  // 四次挥手断开连接
+int disconnect() {  // 三次挥手断开连接
+    ALLEND = clock();
     Header header;
     char* sendbuffer = new char[sizeof(header)];
     char* recvbuffer = new char[sizeof(header)];
@@ -377,17 +377,18 @@ int disconnect() {  // 四次挥手断开连接
 
     memcpy(sendbuffer, &header, sizeof(header));
     if (sendto(client, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-        cout << "[DISCONNECT]第一次挥手发送失败" << endl;
+        cout << "[FAILED]第一次挥手发送失败" << endl;
         return -1;
     }
+    cout << "[DISCONNECT]第一次挥手发送成功" << endl;
 
-    // 接收第二/三次挥手
+    // 接收第二次挥手
     clock_t start = clock();
     while (true) {
         int getData = recvfrom(client, recvbuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen);
         if (getData > 0) {
             memcpy(&header, recvbuffer, sizeof(header));
-            if (header.flag == ACK && check((u_short*)&header, sizeof(header)) == 0) {
+            if (header.flag == FIN_ACK && check((u_short*)&header, sizeof(header)) == 0) {
                 cout << "[DISCONNECT]收到第二次挥手消息" << endl;
                 break;
             }
@@ -401,23 +402,13 @@ int disconnect() {  // 四次挥手断开连接
             start = clock();
         }
     }
-    while(true){
-        int getData = recvfrom(client, recvbuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen);
-        memcpy(&header, recvbuffer, sizeof(header));
-        if (header.flag == FIN_ACK && check((u_short*)&header, sizeof(header)) == 0)
-            cout << "[DISCONNECT]收到第三次挥手消息" << endl;
-        if(clock() - start > 10*CLOCKS_PER_SEC){  // 怕死锁，10s超时
-            cout<<"[ERROR]连接超时，自动断开"<<endl;
-            return -1;
-        }
-    }
 
-    // 发送第四次挥手
-    setHeader(header, ACK, 1, 1, 0);
+    // 发送第三次挥手
+    setHeader(header, ACK, 1, 0, 0);
     memcpy(sendbuffer, &header, sizeof(header));
 
     if (sendto(client, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-        cout << "[FAILED]第四次挥手发送失败" << endl;
+        cout << "[FAILED]第三次挥手发送失败" << endl;
         return -1;
     }
     start = clock();
@@ -426,17 +417,17 @@ int disconnect() {  // 四次挥手断开连接
         int getData = recvfrom(client, recvbuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen);
         if(getData > 0){
             memcpy(&header, recvbuffer, sizeof(header));
-            if (header.flag == FIN_ACK && check((u_short*)&header, sizeof(header)) == 0) {  // 再次收到第三次挥手
-                cout << "[FAILED]重传第四次挥手" << endl;
+            if (header.flag == FIN_ACK && check((u_short*)&header, sizeof(header)) == 0) {  // 再次收到第二次挥手
+                cout << "[FAILED]重传第三次挥手" << endl;
                 if (sendto(client, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                    cout << "[FAILED]第四次挥手发送失败" << endl;
+                    cout << "[FAILED]第三次挥手发送失败" << endl;
                     return -1;
                 }
                 start = clock();
             }
         }
         if (clock() - start > 4 * MAX_TIME) {
-            // 等待一段时间，如果没有收到第三次挥手，认为服务器已经断开连接
+            // 等待一段时间，如果没有收到第二次挥手，认为服务器已经断开连接
             cout << "[DISCONNECT]成功断开连接" << endl;
             break;
         }
