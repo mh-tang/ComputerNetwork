@@ -43,7 +43,7 @@ const unsigned char OVER_ACK = 0xA;  // 00001010
 const unsigned char FIN = 0x10;  // 00010000
 const unsigned char FIN_ACK = 0x12;  // 00010010
 
-const int MAX_TIME = 0.5*CLOCKS_PER_SEC;  // 最大传输延迟时间
+const int MAX_TIME = 0.25*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 // 数据头
 struct Header {
@@ -74,18 +74,17 @@ struct Header {
 clock_t veryBegin;
 
 
-//sizeof返回内存字节数 ushort是16位2字节，所以需要把size向上取整
 u_short getCkSum(u_short* mes, int size) {
+    // sizeof返回字节数，ushort16位2字节（向上取整）
     int count = (size + 1) / 2;
-    u_short* buf = (u_short*)malloc(size + 1);
-    memset(buf, 0, size + 1);
-    memcpy(buf, mes, size);
+    u_short* buf = mes;
     u_long sum = 0;
-    buf += 1;
+    // 跳过校验和字段
+    buf ++;
     count -= 1;
     while (count--) {
         sum += *buf++;
-        if (sum & 0xffff0000) {
+        if (sum & 0xffff0000) {  // 溢出则回卷
             sum &= 0xffff;
             sum++;
         }
@@ -95,12 +94,8 @@ u_short getCkSum(u_short* mes, int size) {
 
 u_short check(u_short* mes, int size) {
     int count = (size + 1) / 2;
-    u_short* buf = (u_short*)malloc(size + 1);
-    memset(buf, 0, size + 1);
-    memcpy(buf, mes, size);
+    u_short* buf = mes;
     u_long sum = 0;
-    //buf += 2;
-    //count -= 2;
     while (count--) {
         sum += *buf++;
         if (sum & 0xffff0000) {
@@ -110,7 +105,6 @@ u_short check(u_short* mes, int size) {
     }
     return ~(sum & 0xffff);
 }
-
 
 void init() {  // 初始化
     WSAStartup(MAKEWORD(2, 2), &wsadata);
@@ -176,7 +170,7 @@ int connect() {  // 三次握手连接
         cout << "[FAILED]第二次握手发送失败" << endl;
         return -1;
     }
-    cout << "[CONNECT]第二次握手发送成功" << endl;
+    cout << "[CONNECT]第二次握手成功" << endl;
 
     // 等待第三次握手
     clock_t start = clock();
@@ -257,7 +251,8 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
         if(getData > 0){
             start=clock();
             memcpy(&header, recvbuffer, sizeof(header));  // 给数据头赋值
-            cout<<"[RECEIVE]收到"<<header.seq<<"号数据包，CheckSum："<<header.checksum<<endl;
+            cout<<"[RECEIVE]收到"<<header.seq<<"号数据包，CheckSum："<<header.checksum;
+            cout<<"，Seq:"<<header.seq<<"，Ack:"<<header.ack<<"，Length:"<<header.length<<endl;
 
             // 检验数据包是否正确
             if(header.seq == clientSeq && check((u_short*)recvbuffer,sizeof(header)+MAX_DATA_LENGTH)==0){  // 数据包正确
@@ -292,9 +287,10 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
                 cout << "[FAILED]ACK发送失败" << endl;
                 return -1;
             }
+            cout << "[SEND]发送ACK" << clientSeq << endl;
             sendACK = true;
         }
-        if (clock() - start > 10 * CLOCKS_PER_SEC) {
+        if (clock() - start > 15 * CLOCKS_PER_SEC) {
             cout << "[ERROR]连接超时，自动断开" << endl;
             return -1;
         }

@@ -46,7 +46,7 @@ const unsigned char OVER_ACK = 0xA;  // 00001010
 const unsigned char FIN = 0x10;  // 00010000
 const unsigned char FIN_ACK = 0x12;  // 00010010
 
-const int MAX_TIME = 0.5*CLOCKS_PER_SEC;  // 最大传输延迟时间
+const int MAX_TIME = 0.25*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 // 数据头
 struct Header {
@@ -78,18 +78,17 @@ clock_t veryBegin;
 clock_t ALLEND;
 
 
-//sizeof返回内存字节数 ushort是16位2字节，所以需要把size向上取整
 u_short getCkSum(u_short* mes, int size) {
+    // sizeof返回字节数，ushort16位2字节（向上取整）
     int count = (size + 1) / 2;
-    u_short* buf = (u_short*)malloc(size + 1);
-    memset(buf, 0, size + 1);
-    memcpy(buf, mes, size);
+    u_short* buf = mes;
     u_long sum = 0;
-    buf += 1;
+    // 跳过校验和字段
+    buf ++;
     count -= 1;
     while (count--) {
         sum += *buf++;
-        if (sum & 0xffff0000) {
+        if (sum & 0xffff0000) {  // 溢出则回卷
             sum &= 0xffff;
             sum++;
         }
@@ -99,12 +98,8 @@ u_short getCkSum(u_short* mes, int size) {
 
 u_short check(u_short* mes, int size) {
     int count = (size + 1) / 2;
-    u_short* buf = (u_short*)malloc(size + 1);
-    memset(buf, 0, size + 1);
-    memcpy(buf, mes, size);
+    u_short* buf = mes;
     u_long sum = 0;
-    //buf += 2;
-    //count -= 2;
     while (count--) {
         sum += *buf++;
         if (sum & 0xffff0000) {
@@ -114,7 +109,6 @@ u_short check(u_short* mes, int size) {
     }
     return ~(sum & 0xffff);
 }
-
 
 void init() {  // 初始化
     WSAStartup(MAKEWORD(2, 2), &wsadata);
@@ -266,13 +260,13 @@ int endSend(int seq) {  // 发送结束信号
     // 设置数据报
     header.flag = OVER;
     header.seq = seq;
-    header.length = strlen(filename);
+    header.length = strlen(filename)+1;
     memset(sendbuffer, 0, sizeof(header) + MAX_DATA_LENGTH);  // sendbuffer置零
     memcpy(sendbuffer, &header, sizeof(header));  // 拷贝数据头
-    memcpy(sendbuffer + sizeof(header), filename, strlen(filename));  // 拷贝文件名
+    memcpy(sendbuffer + sizeof(header), filename, strlen(filename)+1);  // 拷贝文件名
     header.checksum = getCkSum((u_short*)sendbuffer, sizeof(header)+MAX_DATA_LENGTH);  // 计算校验和
     memcpy(sendbuffer, &header, sizeof(header));  // 填充校验和（struct连续存储）
-    cout<<"[END]发送结束信号，CheckSum："<<header.checksum<<endl;
+    cout<<"[END]发送结束信号，CheckSum："<<header.checksum<<"，Length："<<header.length<<endl;
 
     if (sendto(client, sendbuffer,(sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
         cout << "[FAILED]数据包发送失败" << endl;
@@ -329,8 +323,8 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
         getTheMessage(header,thisTimeLength,clientSeq,serverSeq,sendbuffer);
 
         // 发送数据包，补满数据包一起发送
-        cout << "[SEND]准备发送" << clientSeq << "号数据包，数据包大小：" << thisTimeLength<<"，";
-        cout << "CheckSum："<<header.checksum<<endl;
+        cout << "[SEND]发送" << clientSeq << "号数据包，数据包大小：" << thisTimeLength;
+        cout << "，ACK:" << header.ack <<"，CheckSum："<<header.checksum<<endl;
 
         if (sendto(client, sendbuffer, (sizeof(header) + MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
             cout << "[FAILED]数据包发送失败" << endl;
@@ -345,7 +339,7 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
                 // 检查ACK
                 memcpy(&header, recvbuffer, sizeof(header));
                 if (header.ack == clientSeq && check((u_short*)&header, sizeof(header) == 0)) {
-                    cout << "[SEND]接受服务端ACK，准备发送下一数据包" << endl;
+                    cout << "[RECEIVE]接受服务端ACK，准备发送下一数据包" << endl;
                     break;
                 }
             }
