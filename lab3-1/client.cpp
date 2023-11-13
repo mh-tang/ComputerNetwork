@@ -79,7 +79,7 @@ clock_t ALLEND;
 
 
 u_short getCkSum(u_short* mes, int size) {
-    // sizeof返回字节数，ushort16位2字节（向上取整）
+    // size为字节数，ushort16位2字节（向上取整）
     int count = (size + 1) / 2;
     u_short* buf = mes;
     u_long sum = 0;
@@ -439,11 +439,25 @@ void printLog() {  // 打印日志
 
 int main() {
     init();
-    connect();
-    loadFile();
-    sendMessage();
-    disconnect();
-    printLog();
+    while(true){
+        connect();
+        loadFile();
+        sendMessage();
+        disconnect();
+        printLog();
+
+        messagelength = 0;
+        messagepointer = 0;
+        memset(message, 0, sizeof(message));
+        memset(filename, 0, sizeof(filename));
+
+        cout<<"[INPUT]输入q退出，其他键继续"<<endl;
+        char c;
+        cin>>c;
+        if(c == 'q')
+            break;
+        system("cls");
+    }
     system("pause");
     return 0;
 }
