@@ -25,7 +25,6 @@ char* message = new char[100000000];
 char* fileName = new char[100];
 unsigned long long int mPointer;
 
-
 // 常数设置
 u_long blockmode = 0;
 u_long unblockmode = 1;
@@ -36,10 +35,10 @@ const u_short DES_PORT = 7776;  // 客户端端口号7776
 const unsigned char SYN = 0x1;  // 00000001
 const unsigned char ACK = 0x2;  // 00000010
 const unsigned char SYN_ACK = 0x3;  // 00000011
-const unsigned char OVER = 0x8;  // 00001000
-const unsigned char OVER_ACK = 0xA;  // 00001010
-const unsigned char FIN = 0x10;  // 00010000
-const unsigned char FIN_ACK = 0x12;  // 00010010
+const unsigned char OVER = 0x4;  // 00000100
+const unsigned char OVER_ACK = 0x6;  // 00000110
+const unsigned char FIN = 0x8;  // 00001000
+const unsigned char FIN_ACK = 0xA;  // 00001010
 
 const int MAX_TIME = 0.25*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
@@ -48,7 +47,7 @@ struct Header {
     u_short checksum;  // 16位校验和
     u_short seq;  // 16位序列号，rdt3.0，只有最低位0和1两种状态
     u_short ack;  // 16位ack号，ack用来做确认
-    u_short flag;  // 16位状态位 FIN,OVER,FIN,ACK,SYN
+    u_short flag;  // 16位状态位 FIN,OVER,ACK,SYN
     u_short length;  // 16位长度位
     u_short source_port;  // 16位源端口号
     u_short des_port;  // 16位目的端口号
@@ -63,9 +62,6 @@ struct Header {
         length = 0;
     }
 };
-
-//全局时钟
-clock_t veryBegin;
 
 
 u_short getCkSum(u_short* mes, int size) {
@@ -132,7 +128,7 @@ void setHeader(Header& header, unsigned char flag, unsigned short seq, unsigned 
 }
 
 int connect() {  // 三次握手连接
-    veryBegin = clock();
+    clock_t veryBegin = clock();
     Header header;
     char* shakeRBuffer = new char[sizeof(header)];
     char* shakeSBuffer = new char[sizeof(header)];
@@ -228,7 +224,6 @@ int endReceive() {  // 发送OVER_ACK信号
 }
 
 int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
-    veryBegin = clock();
     ioctlsocket(server, FIONBIO, &unblockmode);
 
     Header header;

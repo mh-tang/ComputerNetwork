@@ -4,6 +4,7 @@
 #include<iostream>
 #include<WinSock2.h>
 #include<time.h>
+#include <windows.h>
 #include<fstream>
 #include<iostream>
 #include<string>
@@ -26,7 +27,7 @@ int rlen = sizeof(router_addr);
 
 char* message = new char[100000000];
 char* fileName = new char[100];
-unsigned long long int fileLength = 0;  // 最后传输的下标
+unsigned long long int fileLength = 0;
 unsigned long long int mPointer = 0;  // 下一个传输位置
 
 // 常量设置
@@ -39,10 +40,10 @@ const u_short DES_PORT = 7778;  // 服务端端口号：7778
 const unsigned char SYN = 0x1;  // 00000001
 const unsigned char ACK = 0x2;  // 00000010
 const unsigned char SYN_ACK = 0x3;  // 00000011
-const unsigned char OVER = 0x8;  // 00001000
-const unsigned char OVER_ACK = 0xA;  // 00001010
-const unsigned char FIN = 0x10;  // 00010000
-const unsigned char FIN_ACK = 0x12;  // 00010010
+const unsigned char OVER = 0x4;  // 00000100
+const unsigned char OVER_ACK = 0x6;  // 00000110
+const unsigned char FIN = 0x8;  // 00001000
+const unsigned char FIN_ACK = 0xA;  // 00001010
 
 const int MAX_TIME = 0.25*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
@@ -51,7 +52,7 @@ struct Header {
     u_short checksum;  // 16位校验和
     u_short seq;  // 16位序列号，rdt3.0，只有最低位0和1两种状态
     u_short ack;  // 16位ack号，ack用来做确认
-    u_short flag;  // 16位状态位 FIN,OVER,FIN,ACK,SYN
+    u_short flag;  // 16位状态位 FIN,OVER,ACK,SYN
     u_short length;  // 16位长度位
     u_short source_port;  // 16位源端口号
     u_short des_port;  // 16位目的端口号
@@ -67,9 +68,7 @@ struct Header {
     }
 };
 
-// 全局时钟
-clock_t veryBegin;
-clock_t ALLEND;
+long long head,tail,freq;  // 计时器
 
 
 u_short getCkSum(u_short* mes, int size) {
@@ -106,6 +105,7 @@ u_short check(u_short* mes, int size) {
 
 void init() {  // 初始化
     WSAStartup(MAKEWORD(2, 2), &wsadata);
+    QueryPerformanceFrequency((LARGE_INTEGER*)&freq);
 
     server_addr.sin_family = AF_INET;  
     server_addr.sin_port = htons(7778);  // server的端口号
@@ -135,8 +135,8 @@ void setHeader(Header& header, unsigned char flag, unsigned short seq, unsigned 
 }
 
 int connect() {  // 三次握手连接
-    veryBegin = clock();
     Header header;
+    clock_t start_connect = clock();
     char* shakeRBuffer = new char[sizeof(header)];
     char* shakeSBuffer = new char[sizeof(header)];
     // 将套接字设置为非阻塞模式
@@ -156,7 +156,7 @@ int connect() {  // 三次握手连接
         clock_t start = clock();
         // 等待接受第二次握手信息
         while (recvfrom(client, shakeRBuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen) <= 0) {
-            if (clock() - veryBegin > 60 * CLOCKS_PER_SEC) {
+            if (clock() - start_connect > 60 * CLOCKS_PER_SEC) {
                 cout << "[ERROR]连接超时，自动断开" << endl;
                 return -1;
             }
@@ -293,7 +293,7 @@ int endSend(int seq) {  // 发送结束信号
 }
 
 int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
-    veryBegin = clock();
+    QueryPerformanceCounter((LARGE_INTEGER*)&head);  // 开始计时
     // 设置为非阻塞模式
     ioctlsocket(client, FIONBIO, &unblockmode);
     Header header;
@@ -353,7 +353,7 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
 }
 
 int disconnect() {  // 三次挥手断开连接
-    ALLEND = clock();
+    QueryPerformanceCounter((LARGE_INTEGER*)&tail);  // 结束计时
     Header header;
     char* sendbuffer = new char[sizeof(header)];
     char* recvbuffer = new char[sizeof(header)];
@@ -424,10 +424,11 @@ int disconnect() {  // 三次挥手断开连接
 
 void printLog() {  // 打印日志
     cout << "             --------------传输日志--------------" << endl;
-    cout << "报文总长度：" << mPointer << "字节，分为" << (mPointer / 1024) + 1 << "个报文段分别转发" << endl;
-    double t = (ALLEND - veryBegin) / CLOCKS_PER_SEC;
+    cout << "报文总长度：" << mPointer << "字节，分为" << (mPointer / 1024) + 1 << "个报文段分别发送" << endl;
+    double t = (double)(tail - head) / freq;
     cout << "传输用时：" <<t <<"秒"<< endl;
-    t = mPointer / t;
+    cout << "报文平均往返时延为" << t / (mPointer / 1024 + 1) * 1000 << "毫秒" << endl;
+    t = (double)mPointer / t;
     cout << "传输吞吐率为" << t <<"字节每秒"<< endl;
 }
 

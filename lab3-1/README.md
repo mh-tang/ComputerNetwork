@@ -14,6 +14,7 @@
   - [运行结果](#运行结果)
   - [总结](#总结)
     - [连接与断开连接的思考](#连接与断开连接的思考)
+    - [Router时延的观察](#router时延的观察)
 
 ## 实验设计
 ### 程序执行过程
@@ -26,7 +27,7 @@ Server与Client之间的通信借助Router进行转发，通过Router调节丢�
 5. 接收用户输入，是否进行下一轮传输。
 
 ### 数据报格式
-设计的数据报格式如下，其中数据头部分为112字节，数据部分最大1024字节。
+设计的数据报格式如下，其中数据头部分为112字节，数据部分本次实验设置为最大1024字节。
 
 <center>
 
@@ -46,7 +47,7 @@ struct Header {
     u_short checksum;  // 16位校验和
     u_short seq;  // 16位序列号，rdt3.0，只有最低位0和1两种状态
     u_short ack;  // 16位ack号，ack用来做确认
-    u_short flag;  // 16位状态位 FIN,OVER,FIN,ACK,SYN
+    u_short flag;  // 16位状态位 FIN,OVER,ACK,SYN
     u_short length;  // 16位长度位，数据部分长度
     u_short source_port;  // 16位源端口号
     u_short des_port;  // 16位目的端口号
@@ -61,10 +62,10 @@ struct Header {
 const unsigned char SYN = 0x1;  // 00000001
 const unsigned char ACK = 0x2;  // 00000010
 const unsigned char SYN_ACK = 0x3;  // 00000011
-const unsigned char OVER = 0x8;  // 00001000
-const unsigned char OVER_ACK = 0xA;  // 00001010
-const unsigned char FIN = 0x10;  // 00010000
-const unsigned char FIN_ACK = 0x12;  // 00010010
+const unsigned char OVER = 0x4;  // 00000100
+const unsigned char OVER_ACK = 0x6;  // 00000110
+const unsigned char FIN = 0x8;  // 00001000
+const unsigned char FIN_ACK = 0xA;  // 00001010
 ``` 
 
 - `SYN`和`SYN_ACK`用于建立连接时使用。
@@ -81,7 +82,10 @@ const unsigned char FIN_ACK = 0x12;  // 00010010
 因此，只能在第三次握手后**等待一段时间**，如果没有收到Server端的超时重传数据报，则认为连接建立成功，进入文件传输阶段。  
 整个连接过程也仿照TCP/IP协议设置有**连接计时器**，如果建立连接的时间超过设定时间，则认为连接建立失败，退出程序。
 
-![connect](pic/connect.png)
+<!-- ![connect](pic/connect.png) -->
+<center>
+<img src="pic/connect.png" width="600">
+</center>
 
 > 1. Client端首先向Server端发送连接请求`SYN`，接着便进入等待。如果超过一个`MAX_TIME`时间没有收到Server端的回复，则重新发送连接请求，直到收到Server端的回复。  
 > 2. Server端收到Client端的`SYN`数据保并确认无误后，发送`SYN_ACK`确认连接请求，接着进入等待。如果超过一个`MAX_TIME`时间没有收到Client端的回复，则重新发送`SYN_ACK`确认连接请求，直到收到Client端的回复。  
@@ -94,7 +98,10 @@ const unsigned char FIN_ACK = 0x12;  // 00010010
 实验中，数据发送是用Client端进行，因此Client端在发送断开连接请求时，**数据已经完全传输完毕**，所以无需四次握手。  
 该过程同样设有定时器，双方都进入了断开连接阶段，如果该阶段持续时间过长，将直接断开连接。
 
-![disconnect](pic/disconnect.png)
+<!-- ![disconnect](pic/disconnect.png) -->
+<center>
+<img src="pic/disconnect.png" width="600">
+</center>
 
 > 1. Client端发送`FIN`断开连接请求，接着进入等待。如果超过一个`MAX_TIME`时间没有收到Server端的回复，则重新发送`FIN`断开连接请求，直到收到Server端的回复。
 > 2. Server端收到Client端的`FIN`断开连接请求后，发送`FIN_ACK`确认断开连接。接着进入等待，如果超过一个`MAX_TIME`时间没有收到Client端的回复，则重新发送`FIN_ACK`确认断开连接，直到收到Client端的回复。
@@ -106,7 +113,10 @@ const unsigned char FIN_ACK = 0x12;  // 00010010
 ### rdt3.0发送
 实验采取**停等机制**，只有0和1两种序列号，在未收到对0号序列号的确认前，不会发送1号序列号的数据报。
 
-![send](pic/send.png)
+<!-- ![send](pic/send.png) -->
+<center>
+<img src="pic/send.png" width="400">
+</center>
 
 具体的实现上，使用两层while循环：
 1. 外层循环**封装一个完整的数据包**，有效数据长度不足1023字节时，后续补0填充。当检测到所有文件内容传输完毕后，调用结束传输函数，跳出循环。
@@ -157,12 +167,57 @@ const unsigned char FIN_ACK = 0x12;  // 00010010
 ### rdt3.0接收
 接收方的实现相对更加容易，并**不需要主动进行超时重传**，在未收到正确数据报前，不进入下一状态；收到错误或者冗余数据报后，丢弃并重传`ACK`。
 
-![receive](pic/receive.png)
+<!-- ![receive](pic/receive.png) -->
+<center>
+<img src="pic/receive.png" width="500">
+</center>
 
 实现上，仅需一个循环即可完成上述功能：
 1. 不断提取数据报，检查校验和和序列号，如果不正确则丢弃并重传`ACK`。如果正确则接收数据，并发送`ACK`确认。
 2. 收到正确数据报时，还需要进行一个数据报`flag`位的确认，如果为`OVER`则退出循环，进入结束传输函数。
 3. 另外为了交互性，也设置了定时器：如果长时间未收到报文，则认为连接出现错误。
+
+```C++
+    // 接受数据
+    while (true) {
+        bool sendACK = false;
+        // 等待接收数据
+        int getData = recvfrom(server, recvbuffer, sizeof(header) + MAX_DATA_LENGTH, 0, (sockaddr*)&router_addr, &rlen);
+        if(getData > 0){  // 接收到数据了
+            // 重置时钟，打印日志
+            ...
+            // 检验数据包是否正确
+            if(header.seq == clientSeq && check((u_short*)recvbuffer,sizeof(header)+MAX_DATA_LENGTH)==0){  // 数据包正确
+                cout << "[RECEIVE]成功接受"<<clientSeq<<"号数据包" << endl;
+                if(header.flag == OVER)
+                    // 如果是结束发送数据包，则提取文件名，调用endReceive()后退出
+                    ...
+                // 不是OVER，把数据提取到buffer中
+                memcpy(message + mPointer, recvbuffer + sizeof(header), header.length);
+                mPointer += header.length;
+            }
+            else{  // 数据包错误/冗余，重传上一次ACK
+                // 打印日志，重传上一次的ACK，退出本次循环
+                ...
+            }
+            // 发送ACK
+            setHeader(header,ACK,serverSeq,clientSeq,0);
+            memcpy(sendbuffer, &header, sizeof(header));
+            if (sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                cout << "[FAILED]ACK发送失败" << endl;
+                return -1;
+            }
+            cout << "[SEND]发送ACK" << clientSeq << endl;
+            sendACK = true;
+        }
+        if (clock() - start > 30 * CLOCKS_PER_SEC) {
+            // 长时间未收到数据包，认为连接出现错误，断开连接
+            ...
+        if(sendACK)
+            // 只有收到数据包才转变序号
+            ...
+    }
+```
 
 ## 辅助函数
 ### 计算校验和
@@ -202,14 +257,25 @@ Server在`receive`函数种收到`OVER`数据报后，调用`endReceive`发送�
 
 
 ## 运行结果
-以1.jpg为例进行传输演示，不设置丢包率和延时，18万字节的数据在3秒内传输完毕，并正确保存为r_1.jpg，经测试可以正确打开：  
-![1](pic/none.png)
+对给定的测试文件进行测试，结果如下：
+<center>
+<table>
+  <tr>
+    <td><img src="pic/1.png" width="400"></td>
+    <td><img src="pic/2.png" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="pic/3.png" width="400"></td>
+    <td><img src="pic/h.png" width="400"></td>
+  </tr>
+</table>
+</center>
 
-设置丢包率为1%，延时为5ms，此时同样的文件传输时间为68秒：  
-![2](pic/both.png)
-
-如果把延时设置的特别大(1000ms)，因为我设置的最大等待时间为0.25s，此时会出现大量超时重传，传输变得异常艰难：  
-![3](pic/delay.png)
+文件传输正常，最终结果与原文件一致。  
+测试使用Router调节丢包率和延时，可以正确运行，结果如下：
+<center>
+<img src="pic/r.png" width="500">
+</center>
 
 
 ## 总结
@@ -225,3 +291,9 @@ Server在`receive`函数种收到`OVER`数据报后，调用`endReceive`发送�
    不使用四次挥手是因为`disconnect`阶段文件已经传输完毕，无需额外的挥手，本次实验采取的三次挥手**能保证正确断开连接**。  
    但进一步想，其实可以采取**两次挥手**：  
    服务器收到`FIN`请求后发送`FIN+ACK`，客户端收到`FIN+ACK`后直接断开连接。只是这时，**等待一段时间的任务交由服务器**，确保客户端收到`FIN+ACK`，而不提前断开。
+
+### Router时延的观察
+实验过程中，使用Router调节时延，计算单个数据包的传输时间，发现时延并没有按照Router调节的增长。  
+不设置时延时，单个数据包传输时间小于2ms。设置1ms的时延后，单个数据包传输时间增长到15ms以上。  
+再往上递增时延，能达到接近于线性增长的效果，但拟合程度也没有特别高。  
+Router程序的有效性还有待验证，后续实验可以尝试考虑自己使用count来实现丢包，使用sleep来实现时延。
