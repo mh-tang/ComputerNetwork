@@ -22,18 +22,16 @@ int clen = sizeof(client_addr);
 int rlen = sizeof(router_addr);
 
 char* message = new char[100000000];
-char* filename = new char[100];
-unsigned long long int messagepointer;
+char* fileName = new char[100];
+unsigned long long int mPointer;
 
 
 // 常数设置
 u_long blockmode = 0;
 u_long unblockmode = 1;
 const unsigned short MAX_DATA_LENGTH = 0x3FF;
-const u_short SOURCE_IP = 0x7f01;
-const u_short DES_IP = 0x7f01;
-const u_short SOURCE_PORT = 8888;  // 源端口8888
-const u_short DES_PORT = 8887;  // 客户端端口号8887
+const u_short SOURCE_PORT = 7778;  // 源端口7778
+const u_short DES_PORT = 7776;  // 客户端端口号7776
 
 const unsigned char SYN = 0x1;  // 00000001
 const unsigned char ACK = 0x2;  // 00000010
@@ -52,15 +50,11 @@ struct Header {
     u_short ack;  // 16位ack号，ack用来做确认
     u_short flag;  // 16位状态位 FIN,OVER,FIN,ACK,SYN
     u_short length;  // 16位长度位
-    u_short source_ip;  // 16位源ip地址
-    u_short des_ip;  // 16位目的ip地址
     u_short source_port;  // 16位源端口号
     u_short des_port;  // 16位目的端口号
 
     Header() {
         checksum = 0;
-        source_ip = SOURCE_IP;
-        des_ip = DES_IP;
         source_port = SOURCE_PORT;
         des_port = DES_PORT;
         seq = 0;
@@ -110,15 +104,15 @@ void init() {  // 初始化
     WSAStartup(MAKEWORD(2, 2), &wsadata);
 
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(8888);  // server的端口号
+    server_addr.sin_port = htons(7778);  // server的端口号
     server_addr.sin_addr.s_addr = htonl(2130706433);  // 127.0.0.1
 
     router_addr.sin_family = AF_INET;
-    router_addr.sin_port = htons(8886);  // router的端口号
+    router_addr.sin_port = htons(7777);  // router的端口号
     router_addr.sin_addr.s_addr = htonl(2130706433);  // 127.0.0.1
 
     client_addr.sin_family = AF_INET;
-    client_addr.sin_port = htons(8887);  // client的端口号
+    client_addr.sin_port = htons(7776);  // client的端口号
     client_addr.sin_addr.s_addr = htonl(2130706433);  // 127.0.0.1
 
     server = socket(AF_INET, SOCK_DGRAM, 0);
@@ -204,16 +198,16 @@ int connect() {  // 三次握手连接
 }
 
 int dumpFile() {  // 保存文件
-    char* rfilename = new char[102];
-    sprintf(rfilename, "r_%s", filename);
+    char* rFileName = new char[102];
+    sprintf(rFileName, "r_%s", fileName);
     cout << "             --------------传输结束--------------"<<endl;
-    ofstream fout(rfilename, ofstream::binary);
-    for (int i = 0; i < messagepointer; i++)
+    ofstream fout(rFileName, ofstream::binary);
+    for (int i = 0; i < mPointer; i++)
     {
         fout << message[i];
     }
     fout.close();
-    cout << "文件已被保存为 "<<rfilename << endl;
+    cout << "文件已被保存为 "<<rFileName << endl;
     return 0;
 }
 
@@ -228,7 +222,7 @@ int endReceive() {  // 发送OVER_ACK信号
         return -1;
     }
     // 在disconnect检测，如果收到的是OVER，就再重传一次OVER_ACK
-    cout << "[END]"<<filename<<"接收完毕" << endl;
+    cout << "[END]"<<fileName<<"接收完毕" << endl;
     delete sendbuffer;
     return 1;
 }
@@ -259,18 +253,18 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
                 cout << "[RECEIVE]成功接受"<<clientSeq<<"号数据包" << endl;
                 if(header.flag == OVER){
                     // 提取文件名
-                    memcpy(filename, recvbuffer + sizeof(header), header.length);
+                    memcpy(fileName, recvbuffer + sizeof(header), header.length);
                     delete recvbuffer;
                     delete sendbuffer;
                     if(endReceive()==1)
                         return 1;
                     return -1;
                 }
-                memcpy(message + messagepointer, recvbuffer + sizeof(header), header.length);
+                memcpy(message + mPointer, recvbuffer + sizeof(header), header.length);
                 // for(int i = 0; i < header.length; i++)
                 //     cout << message[messagepointer + i];
                 // cout << endl;
-                messagepointer += header.length;
+                mPointer += header.length;
             }
             else{  // 数据包错误/冗余，重传上一次ACK
                 cout << "[FAILED]数据包错误，等待重传" << endl;
@@ -290,7 +284,7 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
             cout << "[SEND]发送ACK" << clientSeq << endl;
             sendACK = true;
         }
-        if (clock() - start > 15 * CLOCKS_PER_SEC) {
+        if (clock() - start > 30 * CLOCKS_PER_SEC) {
             cout << "[ERROR]连接超时，自动断开" << endl;
             return -1;
         }
@@ -378,9 +372,9 @@ int main() {
         disconnect();
         dumpFile();
 
-        messagepointer = 0;
+        mPointer = 0;
         memset(message, 0, sizeof(message));
-        memset(filename, 0, sizeof(filename));
+        memset(fileName, 0, sizeof(fileName));
 
         cout<<"[INPUT]输入q退出，其他键继续"<<endl;
         char c;

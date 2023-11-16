@@ -26,16 +26,15 @@ Server与Client之间的通信借助Router进行转发，通过Router调节丢�
 5. 接收用户输入，是否进行下一轮传输。
 
 ### 数据报格式
-设计的数据报格式如下，其中数据头部分为144字节，数据部分最大1024字节。
+设计的数据报格式如下，其中数据头部分为112字节，数据部分最大1024字节。
 
 <center>
 
 | **0-15** | **16-31**  | **32-47** |
 |:--------:|:----------:|:---------:|
 | CheckSum | Seq        | Ack       |
-| Flag     | Length     | SourceIP  |
-| DesIP    | SourcePort | DesPort   |
-| Data     | Data       | Data      |
+| Flag     | Length     | SourcePort|
+| DesPort  | Data       | Data      |
 
 </center>
 
@@ -48,9 +47,7 @@ struct Header {
     u_short seq;  // 16位序列号，rdt3.0，只有最低位0和1两种状态
     u_short ack;  // 16位ack号，ack用来做确认
     u_short flag;  // 16位状态位 FIN,OVER,FIN,ACK,SYN
-    u_short length;  // 16位长度位
-    u_short source_ip;  // 16位源ip地址
-    u_short des_ip;  // 16位目的ip地址
+    u_short length;  // 16位长度位，数据部分长度
     u_short source_port;  // 16位源端口号
     u_short des_port;  // 16位目的端口号
 };
@@ -205,6 +202,15 @@ Server在`receive`函数种收到`OVER`数据报后，调用`endReceive`发送�
 
 
 ## 运行结果
+以1.jpg为例进行传输演示，不设置丢包率和延时，18万字节的数据在3秒内传输完毕，并正确保存为r_1.jpg，经测试可以正确打开：  
+![1](pic/none.png)
+
+设置丢包率为1%，延时为5ms，此时同样的文件传输时间为68秒：  
+![2](pic/both.png)
+
+如果把延时设置的特别大(1000ms)，因为我设置的最大等待时间为0.25s，此时会出现大量超时重传，传输变得异常艰难：  
+![3](pic/delay.png)
+
 
 ## 总结
 
