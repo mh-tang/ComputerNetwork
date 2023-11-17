@@ -29,6 +29,7 @@ unsigned long long int mPointer;
 u_long blockmode = 0;
 u_long unblockmode = 1;
 const unsigned short MAX_DATA_LENGTH = 0x3FF;
+u_long IP = 0x7F000001;
 const u_short SOURCE_PORT = 7778;  // 源端口7778
 const u_short DES_PORT = 7776;  // 客户端端口号7776
 
@@ -69,6 +70,7 @@ u_short getCkSum(u_short* mes, int size) {
     int count = (size + 1) / 2;
     u_short* buf = mes;
     u_long sum = 0;
+    sum += ((IP >> 16) & 0xffff + IP & 0xffff)*2;  // 伪首部
     // 跳过校验和字段
     buf ++;
     count -= 1;
@@ -86,6 +88,7 @@ u_short check(u_short* mes, int size) {
     int count = (size + 1) / 2;
     u_short* buf = mes;
     u_long sum = 0;
+    sum += ((IP >> 16) & 0xffff + IP & 0xffff)*2;  // 伪首部
     while (count--) {
         sum += *buf++;
         if (sum & 0xffff0000) {

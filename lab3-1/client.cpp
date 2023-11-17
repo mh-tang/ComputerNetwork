@@ -34,6 +34,7 @@ unsigned long long int mPointer = 0;  // 下一个传输位置
 u_long unblockmode = 1;
 u_long blockmode = 0;
 const unsigned short MAX_DATA_LENGTH = 0x3FF;
+u_long IP = 0x7F000001;
 const u_short SOURCE_PORT = 7776;  // 客户端端口号：7776
 const u_short DES_PORT = 7778;  // 服务端端口号：7778
 
@@ -76,6 +77,7 @@ u_short getCkSum(u_short* mes, int size) {
     int count = (size + 1) / 2;
     u_short* buf = mes;
     u_long sum = 0;
+    sum += ((IP >> 16) & 0xffff + IP & 0xffff)*2;  // 伪首部
     // 跳过校验和字段
     buf ++;
     count -= 1;
@@ -93,6 +95,7 @@ u_short check(u_short* mes, int size) {
     int count = (size + 1) / 2;
     u_short* buf = mes;
     u_long sum = 0;
+    sum += ((IP >> 16) & 0xffff + IP & 0xffff)*2;  // 伪首部
     while (count--) {
         sum += *buf++;
         if (sum & 0xffff0000) {
@@ -216,19 +219,29 @@ int connect() {  // 三次握手连接
 }
 
 int loadFile() {  // 读取文件
-    cout << "[INPUT]要传输的文件：" << endl;
-    cin>>fileName;
-    ifstream fin(fileName, ifstream::binary);
-    unsigned long long int index = 0;
-    unsigned char temp = fin.get();
-    // 循环读取文件
-    while (fin)
-    {
-        message[index++] = temp;
-        temp = fin.get();
+    while(true){
+        cout << "[INPUT]要传输的文件：" << endl;
+        cin>>fileName;
+        ifstream fin(fileName, ifstream::binary);
+        unsigned long long int index = 0;
+        unsigned char temp = fin.get();
+        // 循环读取文件
+        while (fin)
+        {
+            message[index++] = temp;
+            temp = fin.get();
+        }
+        fin.close();
+        if(index<=0){
+            cout<<"[ERROR]文件读取失败，请重新输入"<<endl;
+
+            continue;
+        }
+        else{
+            fileLength = index-1;
+            break;
+        }
     }
-    fileLength = index-1;
-    fin.close();
     cout << "[INPUT]文件读取完成" << endl;
     return 0;
 }

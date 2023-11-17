@@ -229,6 +229,7 @@ u_short getCkSum(u_short* mes, int size) {
     int count = (size + 1) / 2;
     u_short* buf = mes;
     u_long sum = 0;
+    sum += ((IP >> 16) & 0xffff + IP & 0xffff)*2;  // 伪首部
     // 跳过校验和字段
     buf ++;
     count -= 1;
@@ -244,6 +245,7 @@ u_short getCkSum(u_short* mes, int size) {
 ```
 
 将数据包除校验和字段以外的所有数据进行累加，累加结果溢出则进行回卷，最后将结果取反，得到校验和。  
+除了将数据报中的数据进行累加，还构造了伪首部，把源IP和目的IP加入检验和。  
 校验和的验证与计算类似，只是不再跳过检验和字段（也可以不用跳过，初始设为0）。正确情况下，全部累加结果取反后为0。
 
 
