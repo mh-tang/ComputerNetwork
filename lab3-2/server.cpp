@@ -29,13 +29,16 @@ unsigned long long int mPointer;
 u_long blockmode = 0;
 u_long unblockmode = 1;
 
-const int WINDOW_SIZE = 4;  // 窗口大小
-const int SEQ_SIZE = 8;  // 序列号大小0-8
+int expectedSeq = 0;  // 期待的序列号
+
+int WINDOW_SIZE = 4;  // 窗口大小
+int SEQ_SIZE = 8;  // 序列号大小
 const unsigned short MAX_DATA_LENGTH = 0x3FF;
 
 u_long IP = 0x7F000001;
 const u_short SOURCE_PORT = 7778;  // 源端口7778
 const u_short DES_PORT = 7776;  // 客户端端口号7776
+const int MAX_TIME = 0.25*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 const unsigned char SYN = 0x1;  // 00000001
 const unsigned char ACK = 0x2;  // 00000010
@@ -44,8 +47,6 @@ const unsigned char OVER = 0x4;  // 00000100
 const unsigned char OVER_ACK = 0x6;  // 00000110
 const unsigned char FIN = 0x8;  // 00001000
 const unsigned char FIN_ACK = 0xA;  // 00001010
-
-const int MAX_TIME = 0.25*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 // 数据头
 struct Header {
@@ -161,7 +162,7 @@ int connect() {  // 三次握手连接
     }
 
     // 发送第二次握手
-    setHeader(header,SYN_ACK,0,header.seq,0);
+    setHeader(header,SYN_ACK,0,0,0);
     memcpy(shakeSBuffer, &header, sizeof(header));
     if (sendto(server, shakeSBuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
         cout << "[FAILED]第二次握手发送失败" << endl;
@@ -236,23 +237,25 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
     Header header;
     char* recvbuffer = new char[sizeof(header) + MAX_DATA_LENGTH];
     char* sendbuffer = new char[sizeof(header)];
-    int clientSeq = 0, serverSeq = 1;
-    clock_t start = clock();
+    // 初始化sendbuffer用于重传
+    setHeader(header,0,0,0,0);  // 用于初始化重传
+    memcpy(sendbuffer, &header, sizeof(header));
 
+    clock_t start = clock();
     // 接受数据
     while (true) {
         bool sendACK = false;
         // 等待接收数据
         int getData = recvfrom(server, recvbuffer, sizeof(header) + MAX_DATA_LENGTH, 0, (sockaddr*)&router_addr, &rlen);
         if(getData > 0){
-            start=clock();
+            start = clock();
             memcpy(&header, recvbuffer, sizeof(header));  // 给数据头赋值
             cout<<"[RECEIVE]收到"<<header.seq<<"号数据包，CheckSum："<<header.checksum;
             cout<<"，Seq:"<<header.seq<<"，Ack:"<<header.ack<<"，Length:"<<header.length<<endl;
 
             // 检验数据包是否正确
-            if(header.seq == clientSeq && check((u_short*)recvbuffer,sizeof(header)+MAX_DATA_LENGTH)==0){  // 数据包正确
-                cout << "[RECEIVE]成功接受"<<clientSeq<<"号数据包" << endl;
+            if(header.seq == expectedSeq && check((u_short*)recvbuffer,sizeof(header)+MAX_DATA_LENGTH)==0){  // 数据包正确
+                cout << "[RECEIVE]成功接受"<<expectedSeq<<"号数据包" << endl;
                 if(header.flag == OVER){
                     // 提取文件名
                     memcpy(fileName, recvbuffer + sizeof(header), header.length);
@@ -266,7 +269,8 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
                 mPointer += header.length;
             }
             else{  // 数据包错误/冗余，重传上一次ACK
-                cout << "[FAILED]数据包错误，等待重传" << endl;
+                //cout << check((u_short*)recvbuffer,sizeof(header)+MAX_DATA_LENGTH) << endl;
+                cout << "[FAILED]数据包错误，等待重传，expectedSeq：" << expectedSeq << endl;
                 if(sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR){
                     cout << "[FAILED]ACK发送失败" << endl;
                     return -1;
@@ -274,13 +278,13 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
                 continue;
             }
             // 发送ACK
-            setHeader(header,ACK,serverSeq,clientSeq,0);
+            setHeader(header,ACK,expectedSeq,expectedSeq,0);
             memcpy(sendbuffer, &header, sizeof(header));
             if (sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
                 cout << "[FAILED]ACK发送失败" << endl;
                 return -1;
             }
-            cout << "[SEND]发送ACK" << clientSeq << endl;
+            cout << "[SEND]发送ACK" << expectedSeq << endl;
             sendACK = true;
         }
         if (clock() - start > 30 * CLOCKS_PER_SEC) {
@@ -289,8 +293,9 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
         }
         if(sendACK){
             // 转变序号
-            clientSeq = (clientSeq + 1) % 2;
-            serverSeq = (serverSeq + 1) % 2;
+            expectedSeq++;
+            if(expectedSeq == SEQ_SIZE)
+                expectedSeq = 0;     
         }
     }
 }
@@ -366,12 +371,17 @@ int disconnect() {  // 三次挥手断开连接
 int main() {
     init();
     while(true){
+        cout<<"[INPUT]输入窗口大小："<<endl;
+        cin>> WINDOW_SIZE;
+        SEQ_SIZE = WINDOW_SIZE * 2;
+
         connect();
         receiveMessage();
         disconnect();
         dumpFile();
 
         mPointer = 0;
+        expectedSeq = 0;
         memset(message, 0, sizeof(message));
         memset(fileName, 0, sizeof(fileName));
 

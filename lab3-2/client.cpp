@@ -34,9 +34,13 @@ unsigned long long int mPointer = 0;  // 下一个传输位置
 u_long unblockmode = 1;
 u_long blockmode = 0;
 
-const int WINDOW_SIZE = 4;  // 窗口大小
-const int SEQ_SIZE = 8;  // 序列号大小0-8
+int nextSeq = 0;  // 下一个发送序列号
+int base = 0;  // 窗口基序号
+
+int WINDOW_SIZE = 4;  // 窗口大小
+int SEQ_SIZE = 8;  // 序列号大小
 const unsigned short MAX_DATA_LENGTH = 0x3FF;
+const int MAX_TIME = 0.25*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 u_long IP = 0x7F000001;
 const u_short SOURCE_PORT = 7776;  // 客户端端口号：7776
@@ -49,8 +53,6 @@ const unsigned char OVER = 0x4;  // 00000100
 const unsigned char OVER_ACK = 0x6;  // 00000110
 const unsigned char FIN = 0x8;  // 00001000
 const unsigned char FIN_ACK = 0xA;  // 00001010
-
-const int MAX_TIME = 0.25*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 // 数据头
 struct Header {
@@ -290,7 +292,7 @@ int endSend(int seq) {  // 发送结束信号
             if (clock() - start > MAX_TIME) {
                 cout<<"[FAILED]数据包确认超时，重传"<<endl;
                 if (sendto(client, sendbuffer, (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                    cout << "[FAILED]数据包发送失败" << endl;
+                    cout << "[FAILED]数据包" << seq << "发送失败" << endl;
                     return -1;
                 }
                 start = clock();
@@ -315,57 +317,100 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
     ioctlsocket(client, FIONBIO, &unblockmode);
     Header header;
     char* recvbuffer = new char[sizeof(header)];
-    char* sendbuffer = new char[sizeof(header) + MAX_DATA_LENGTH];
-    int clientSeq = 0, serverSeq = 1;  // 客户端和服务端的序号
+    char** sendbuffer = new char*[SEQ_SIZE];  // 发送缓冲区Window
+    for (int i = 0; i < SEQ_SIZE; i++)
+        sendbuffer[i] = new char[sizeof(header) + MAX_DATA_LENGTH];
 
+    clock_t start = clock();
+    bool startFlag = true;
     while (true) {
         int thisTimeLength;  // 本次数据传输长度
-        if (mPointer >= fileLength) {  // 发送完毕
-            delete recvbuffer;
-            delete sendbuffer;
-            if (endSend(clientSeq) == 1)
-                return 1;
-            return -1;
-        }
-        if (fileLength - mPointer >= MAX_DATA_LENGTH)  // 可以按照最大限度发送
-            thisTimeLength = MAX_DATA_LENGTH;
-        else 
-            thisTimeLength = fileLength - mPointer + 1;  // 计算有效数据长度
-        getTheMessage(header,thisTimeLength,clientSeq,serverSeq,sendbuffer);
-
-        // 发送数据包，补满数据包一起发送
-        cout << "[SEND]发送" << clientSeq << "号数据包，数据包大小：" << thisTimeLength;
-        cout << "，ACK:" << header.ack <<"，CheckSum："<<header.checksum<<endl;
-
-        if (sendto(client, sendbuffer, (sizeof(header) + MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-            cout << "[FAILED]数据包发送失败" << endl;
-            return -1;
-        }
-        // 开始计时器
-        clock_t start = clock();
-        // 确认接收ACK，超时重传
-        while (true) {
-            int getData = recvfrom(client, recvbuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen);
-            if(getData > 0){
-                // 检查ACK
-                memcpy(&header, recvbuffer, sizeof(header));
-                if (header.ack == clientSeq && check((u_short*)&header, sizeof(header) == 0)) {
-                    cout << "[RECEIVE]接受服务端ACK，准备发送下一数据包" << endl;
-                    break;
-                }
-            }
-            if (clock() - start > MAX_TIME) {
-                cout<<"[FAILED]数据包确认超时，重传"<<endl;
-                if (sendto(client, sendbuffer, (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                    cout << "[FAILED]数据报发送失败" << endl;
+        int temp = nextSeq;
+        if (nextSeq < base)
+            temp = nextSeq + SEQ_SIZE;
+        if(temp < base+WINDOW_SIZE){  // 可以发送数据
+            if (mPointer >= fileLength) {  // 发送完毕
+                if(base == nextSeq){  // 窗口内确认完毕
+                    delete recvbuffer;
+                    for (int i = 0; i < SEQ_SIZE; i++)
+                        delete sendbuffer[i];
+                    delete sendbuffer;
+                    if (endSend(nextSeq) == 1)
+                        return 1;
                     return -1;
                 }
-                start = clock();
+                // 窗口内未确认完毕，等待确认
+            }
+            else{
+                if (fileLength - mPointer >= MAX_DATA_LENGTH)  // 可以按照最大限度发送
+                    thisTimeLength = MAX_DATA_LENGTH;
+                else 
+                    thisTimeLength = fileLength - mPointer + 1;  // 计算有效数据长度
+                getTheMessage(header,thisTimeLength,nextSeq,nextSeq,sendbuffer[nextSeq]);
+
+                // 发送数据包，补满数据包一起发送
+                cout << "[SEND]发送" << nextSeq << "号数据包，数据包大小：" << thisTimeLength;
+                cout << "，ACK:" << header.ack <<"，CheckSum："<<header.checksum << endl;
+                //cout << "check：" << check((u_short*)sendbuffer[nextSeq], sizeof(header)+MAX_DATA_LENGTH) << endl;
+                if (sendto(client, sendbuffer[nextSeq], (sizeof(header) + MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                    cout << "[FAILED]数据包" << nextSeq << "发送失败" << endl;
+                    return -1;
+                }
+                
+                if(base == nextSeq){  // 如果是第一个数据包，设置计时器
+                    start = clock();
+                    startFlag = true;
+                }
+                // 转变序号
+                nextSeq++;
+                if(nextSeq == SEQ_SIZE)
+                    nextSeq = 0;
             }
         }
-        // 转变序号
-        clientSeq = (clientSeq+1)%2;
-        serverSeq = (serverSeq+1)%2;
+        // 确认接收ACK
+        int getData = recvfrom(client, recvbuffer, sizeof(header), 0, (sockaddr*)&router_addr, &rlen);
+        if(getData > 0){
+            // 检查ACK
+            memcpy(&header, recvbuffer, sizeof(header));
+            if (header.flag == ACK && check((u_short*)&header, sizeof(header) == 0)) {
+                base = header.ack + 1;
+                if (base == SEQ_SIZE)
+                    base = 0;
+                cout << "[RECEIVE]接受服务端ACK" << header.ack << "，窗口滑动base：" << base << "，nextSeq：" << nextSeq <<endl;
+                if(base == nextSeq)
+                    startFlag = false;
+                else{
+                    start = clock();
+                    startFlag = true;
+                }                    
+            }
+            // 数据包错误什么也不做
+        }
+        // 超时重传滑动窗
+        if (startFlag && (clock() - start > MAX_TIME*2)) {
+            cout<<"[FAILED]数据包确认超时，重传窗口所有数据包"<<endl;
+            int temp = nextSeq;
+            if (base > nextSeq)
+                temp = SEQ_SIZE;
+            for(int i=base;i<temp;i++){
+                cout<<"[RESEND]重传"<<i<<"号数据包"<<endl;
+                if (sendto(client, sendbuffer[i], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                    cout << "[FAILED]数据报" << i<< "发送失败" << endl;
+                    return -1;
+                }
+            }
+            if (temp == SEQ_SIZE){
+                for(int i=0;i<nextSeq;i++){
+                    cout<<"[RESEND]重传"<<i<<"号数据包"<<endl;
+                    if (sendto(client, sendbuffer[i], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                        cout << "[FAILED]数据报" << i<< "发送失败" << endl;
+                        return -1;
+                    }
+                }
+            }
+            start = clock();
+            startFlag = true;
+        }
     }
 }
 
@@ -452,6 +497,10 @@ void printLog() {  // 打印日志
 int main() {
     init();
     while(true){
+        cout<<"[INPUT]输入窗口大小："<<endl;
+        cin>> WINDOW_SIZE;
+        SEQ_SIZE = WINDOW_SIZE * 2;
+
         connect();
         loadFile();
         sendMessage();
@@ -460,6 +509,8 @@ int main() {
 
         fileLength = 0;
         mPointer = 0;
+        nextSeq = 0;
+        base = 0;
         memset(message, 0, sizeof(message));
         memset(fileName, 0, sizeof(fileName));
 
