@@ -136,7 +136,7 @@ void init() {  // 初始化
 
     client = socket(AF_INET, SOCK_DGRAM, 0);
     bind(client, (SOCKADDR*)&client_addr, sizeof(client_addr));  // 绑定客户端地址
-    cout << "[INIT]初始化成功" << endl;
+    cout << "             --------------客户端初始化成功--------------" << endl;
 }
 
 void setHeader(Header& header, unsigned char flag, unsigned short seq, unsigned short ack, unsigned short length) {
@@ -379,7 +379,7 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
             // 检查ACK
             memcpy(&header, recvbuffer, sizeof(header));
             if (header.flag == ACK && check((u_short*)&header, sizeof(header) == 0)) {
-                base = header.ack + 1;
+                base = header.ack + 1;  // 累积确认
                 if (base == SEQ_SIZE)
                     base = 0;
                 cout << "[RECEIVE]接受服务端ACK" << header.ack << "，窗口滑动base：" << base << "，nextSeq：" << nextSeq <<endl;

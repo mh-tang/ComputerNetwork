@@ -130,7 +130,7 @@ void init() {  // 初始化
 
     client = socket(AF_INET, SOCK_DGRAM, 0);
     bind(client, (SOCKADDR*)&client_addr, sizeof(client_addr));  // 绑定客户端地址
-    cout << "[INIT]初始化成功" << endl;
+    cout << "             --------------客户端初始化成功--------------" << endl;
 }
 
 void setHeader(Header& header, unsigned char flag, unsigned short seq, unsigned short ack, unsigned short length) {
