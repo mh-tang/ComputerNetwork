@@ -46,7 +46,7 @@ const unsigned char OVER_ACK = 0x6;  // 00000110
 const unsigned char FIN = 0x8;  // 00001000
 const unsigned char FIN_ACK = 0xA;  // 00001010
 
-const int MAX_TIME = 0.25*CLOCKS_PER_SEC;  // 最大传输延迟时间
+const int MAX_TIME = 0.2*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 // 数据头
 struct Header {

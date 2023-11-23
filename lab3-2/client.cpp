@@ -40,7 +40,7 @@ int base = 0;  // 窗口基序号
 int WINDOW_SIZE = 4;  // 窗口大小
 int SEQ_SIZE = 8;  // 序列号大小
 const unsigned short MAX_DATA_LENGTH = 0x3FF;
-const int MAX_TIME = 0.25*CLOCKS_PER_SEC;  // 最大传输延迟时间
+const int MAX_TIME = 0.2*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 u_long IP = 0x7F000001;
 const u_short SOURCE_PORT = 7776;  // 客户端端口号：7776
@@ -362,8 +362,8 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
                     cout << "[FAILED]数据包" << nextSeq << "发送失败" << endl;
                     return -1;
                 }
-                
-                if(base == nextSeq){  // 如果是第一个数据包，设置计时器
+                // 如果是第一个数据包，设置计时器
+                if(base == nextSeq){
                     start = clock();
                     startFlag = true;
                 }
