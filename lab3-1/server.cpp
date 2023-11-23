@@ -68,7 +68,10 @@ struct Header {
 u_short getCkSum(u_short* mes, int size) {
     // size为字节数，ushort16位2字节（向上取整）
     int count = (size + 1) / 2;
-    u_short* buf = mes;
+    u_short* buf = new u_short[size + 1];
+    memset(buf, 0, size + 1);
+    memcpy(buf, mes, size);
+
     u_long sum = 0;
     sum += ((IP >> 16) & 0xffff + IP & 0xffff)*2;  // 伪首部
     // 跳过校验和字段
@@ -86,7 +89,10 @@ u_short getCkSum(u_short* mes, int size) {
 
 u_short check(u_short* mes, int size) {
     int count = (size + 1) / 2;
-    u_short* buf = mes;
+    u_short* buf = new u_short[size + 1];
+    memset(buf, 0, size + 1);
+    memcpy(buf, mes, size);
+    
     u_long sum = 0;
     sum += ((IP >> 16) & 0xffff + IP & 0xffff)*2;  // 伪首部
     while (count--) {
