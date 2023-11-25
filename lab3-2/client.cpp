@@ -322,6 +322,7 @@ clock_t start = clock();  // 计时器
 bool startFlag = true;  // 计时器开关
 mutex mtx;  // 互斥锁
 bool exitThread = false;  // 退出接收线程
+char** sendbuffer;
 
 // 接收数据线程
 unsigned __stdcall ThreadRecv(void* param){
@@ -354,15 +355,57 @@ unsigned __stdcall ThreadRecv(void* param){
     return 0;
 }
 
+unsigned __stdcall ThreadTimer(void* param){
+    Header header;
+    // -----超时事件-----
+    while(!exitThread){
+        if (startFlag && (clock() - start > MAX_TIME*2)) {
+            cout<<"[FAILED]数据包确认超时，重传窗口所有数据包"<<endl;
+            // 确认窗口范围
+            mtx.lock();
+            int temp_Seq = nextSeq;
+            int temp_base = base;
+            int temp = temp_Seq;
+            mtx.unlock();
+
+            if (temp_base > temp_Seq)
+                temp = SEQ_SIZE;
+            for(int i=temp_base;i<temp;i++){
+                cout<<"[RESEND]重传"<<i<<"号数据包"<<endl;
+                if (sendto(client, sendbuffer[i], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                    cout << "[FAILED]数据报" << i<< "发送失败" << endl;
+                    return -1;
+                }
+            }
+            if (temp == SEQ_SIZE){
+                for(int i=0;i<temp_Seq;i++){
+                    cout<<"[RESEND]重传"<<i<<"号数据包"<<endl;
+                    if (sendto(client, sendbuffer[i], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                        cout << "[FAILED]数据报" << i<< "发送失败" << endl;
+                        return -1;
+                    }
+                }
+            }
+            // 重置计时器
+            mtx.lock();
+            start = clock();
+            startFlag = true;
+            mtx.unlock();
+        }
+    }
+    return 0;
+}
+
 int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
     QueryPerformanceCounter((LARGE_INTEGER*)&head);  // 开始计时
     ioctlsocket(client, FIONBIO, &unblockmode);  // 设置为非阻塞模式
     Header header;
-    char** sendbuffer = new char*[SEQ_SIZE];  // 发送缓冲区Window
+    sendbuffer = new char*[SEQ_SIZE];  // 发送缓冲区Window
     for (int i = 0; i < SEQ_SIZE; i++)
         sendbuffer[i] = new char[sizeof(header) + MAX_DATA_LENGTH];
 
     _beginthreadex(NULL, 0, ThreadRecv, 0, 0, NULL);  // 启动接收线程
+    _beginthreadex(NULL, 0, ThreadTimer, 0, 0, NULL);  // 启动超时线程
 
     while (true) {
         int thisTimeLength;  // 本次数据传输长度
@@ -390,7 +433,7 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
                         return 1;
                     return -1;
                 }
-                // 窗口内未确认完毕，等待确认
+                // 窗口内未确认完毕，继续等待确认
             }
             else{
                 // 封装数据包
@@ -420,40 +463,6 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
                     nextSeq = 0;
                 mtx.unlock();
             }
-        }
-
-        // -----超时事件-----
-        if (startFlag && (clock() - start > MAX_TIME*2)) {
-            cout<<"[FAILED]数据包确认超时，重传窗口所有数据包"<<endl;
-            // 确认窗口范围
-            int temp = nextSeq;
-            mtx.lock();
-            int temp_base = base;
-            mtx.unlock();
-
-            if (temp_base > nextSeq)
-                temp = SEQ_SIZE;
-            for(int i=temp_base;i<temp;i++){
-                cout<<"[RESEND]重传"<<i<<"号数据包"<<endl;
-                if (sendto(client, sendbuffer[i], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                    cout << "[FAILED]数据报" << i<< "发送失败" << endl;
-                    return -1;
-                }
-            }
-            if (temp == SEQ_SIZE){
-                for(int i=0;i<nextSeq;i++){
-                    cout<<"[RESEND]重传"<<i<<"号数据包"<<endl;
-                    if (sendto(client, sendbuffer[i], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                        cout << "[FAILED]数据报" << i<< "发送失败" << endl;
-                        return -1;
-                    }
-                }
-            }
-            // 重置计时器
-            mtx.lock();
-            start = clock();
-            startFlag = true;
-            mtx.unlock();
         }
     }
 }
