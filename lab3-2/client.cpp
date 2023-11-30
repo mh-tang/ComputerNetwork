@@ -40,7 +40,7 @@ int base = 0;  // 窗口基序号
 
 int WINDOW_SIZE = 4;  // 窗口大小
 int SEQ_SIZE = 8;  // 序列号大小
-const unsigned short MAX_DATA_LENGTH = 0x3FF;
+const unsigned short MAX_DATA_LENGTH = 0x1000;
 const int MAX_TIME = 0.2*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 u_long IP = 0x7F000001;
@@ -539,10 +539,10 @@ int disconnect() {  // 三次挥手断开连接
 
 void printLog() {  // 打印日志
     cout << "             --------------传输日志--------------" << endl;
-    cout << "报文总长度：" << mPointer << "字节，分为" << (mPointer / 1024) + 1 << "个报文段分别发送" << endl;
+    cout << "报文总长度：" << mPointer << "字节，分为" << (mPointer / MAX_DATA_LENGTH) + 1 << "个报文段分别发送" << endl;
     double t = (double)(tail - head) / freq;
     cout << "传输用时：" <<t <<"秒"<< endl;
-    cout << "报文平均往返时延为" << t / (mPointer / 1024 + 1) * 1000 << "毫秒" << endl;
+    cout << "报文平均往返时延为" << t / (mPointer / MAX_DATA_LENGTH + 1) * 1000 << "毫秒" << endl;
     t = (double)mPointer / t;
     cout << "传输吞吐率为" << t <<"字节每秒"<< endl;
 }

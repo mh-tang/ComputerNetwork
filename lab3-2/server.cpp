@@ -33,7 +33,7 @@ int expectedSeq = 0;  // 期待的序列号
 
 int WINDOW_SIZE = 4;  // 窗口大小
 int SEQ_SIZE = 8;  // 序列号大小
-const unsigned short MAX_DATA_LENGTH = 0x3FF;
+const unsigned short MAX_DATA_LENGTH = 0x1000;
 
 u_long IP = 0x7F000001;
 const u_short SOURCE_PORT = 7778;  // 源端口7778
