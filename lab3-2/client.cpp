@@ -1,7 +1,6 @@
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS 1
 
-#include<iostream>
 #include<WinSock2.h>
 #include<time.h>
 #include<windows.h>
@@ -41,7 +40,7 @@ int base = 0;  // 窗口基序号
 int WINDOW_SIZE = 4;  // 窗口大小
 int SEQ_SIZE = 8;  // 序列号大小
 const unsigned short MAX_DATA_LENGTH = 0x1000;
-const int MAX_TIME = 0.2*CLOCKS_PER_SEC;  // 最大传输延迟时间
+const int MAX_TIME = 0.5*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 u_long IP = 0x7F000001;
 const u_short SOURCE_PORT = 7776;  // 客户端端口号：7776
@@ -335,6 +334,11 @@ unsigned __stdcall ThreadRecv(void* param){
             // 检查ACK
             memcpy(&header, recvbuffer, sizeof(header));
             if (header.flag == ACK && check((u_short*)&header, sizeof(header) == 0)) {
+                // 判断ACK是否在窗口内
+                if (base > header.ack){  // ack大于base，肯定没问题，小于base，考虑回卷
+                    if((base + WINDOW_SIZE) <= (header.ack + SEQ_SIZE))  // ack在窗口外
+                        continue;                        
+                }
                 mtx.lock();
                 base = header.ack + 1;  // 累积确认
                 if (base == SEQ_SIZE)

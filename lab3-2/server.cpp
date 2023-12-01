@@ -1,4 +1,3 @@
-#include<iostream>
 #include<WinSock2.h>
 #include<time.h>
 #include<fstream>
@@ -38,7 +37,7 @@ const unsigned short MAX_DATA_LENGTH = 0x1000;
 u_long IP = 0x7F000001;
 const u_short SOURCE_PORT = 7778;  // 源端口7778
 const u_short DES_PORT = 7776;  // 客户端端口号7776
-const int MAX_TIME = 0.2*CLOCKS_PER_SEC;  // 最大传输延迟时间
+const int MAX_TIME = 0.5*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 const unsigned char SYN = 0x1;  // 00000001
 const unsigned char ACK = 0x2;  // 00000010
