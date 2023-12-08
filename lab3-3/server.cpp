@@ -236,17 +236,36 @@ int endReceive() {  // 发送OVER_ACK信号
     return 1;
 }
 
+
+char** winBuffer;
+bool* isRecv;
+
+void moveWindow(){
+    Header header;
+    while(isRecv[rcvBase] == true){
+        memcpy(&header, winBuffer[rcvBase], sizeof(header));
+        memcpy(message + mPointer, winBuffer[rcvBase] + sizeof(header), header.length);
+        mPointer += header.length;
+        isRecv[rcvBase] == false;
+        rcvBase = (rcvBase+1) % SEQ_SIZE;
+    }
+}
+
 int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
     ioctlsocket(server, FIONBIO, &unblockmode);
-
     Header header;
+    isRecv = new bool[SEQ_SIZE];
+    winBuffer = new char*[SEQ_SIZE];
+    for (int i = 0; i < SEQ_SIZE; i++){
+        winBuffer[i] = new char[sizeof(header) + MAX_DATA_LENGTH];
+        isRecv[i] = false;
+    }
     char* recvbuffer = new char[sizeof(header) + MAX_DATA_LENGTH];
     char* sendbuffer = new char[sizeof(header)];
 
     clock_t start = clock();
     // 接受数据
     while (true) {
-        bool sendACK = false;
         // 等待接收数据
         int getData = recvfrom(server, recvbuffer, sizeof(header) + MAX_DATA_LENGTH, 0, (sockaddr*)&router_addr, &rlen);
         if(getData > 0){
@@ -256,48 +275,45 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
             cout<<"，Seq:"<<header.seq<<"，Ack:"<<header.ack<<"，Length:"<<header.length<<endl;
 
             // 检验数据包是否正确
-            if(header.seq == rcvBase && check((u_short*)recvbuffer,sizeof(header)+MAX_DATA_LENGTH)==0){  // 数据包正确
-                cout << "[RECEIVE]成功接受"<<rcvBase<<"号数据包" << endl;
+            if(check((u_short*)recvbuffer,sizeof(header)+MAX_DATA_LENGTH)==0){  // 数据包正确 
                 if(header.flag == OVER){
                     // 提取文件名
                     memcpy(fileName, recvbuffer + sizeof(header), header.length);
                     delete recvbuffer;
                     delete sendbuffer;
+                    delete isRecv;
+                    for(int i=0;i<SEQ_SIZE;i++)
+                        delete winBuffer[i];
+                    delete winBuffer;
                     if(endReceive()==1)
                         return 1;
                     return -1;
                 }
-                memcpy(message + mPointer, recvbuffer + sizeof(header), header.length);
-                mPointer += header.length;
-            }
-            else{  // 数据包错误/冗余，重传上一次ACK
-                //cout << check((u_short*)recvbuffer,sizeof(header)+MAX_DATA_LENGTH) << endl;
-                cout << "[FAILED]数据包错误，等待重传，expectedSeq：" << rcvBase << endl;
-                if(sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR){
+                int temp = header.seq;
+                if(temp < rcvBase){
+                    temp += SEQ_SIZE;
+                }
+                if(temp >= rcvBase && temp <= rcvBase + WINDOW_SIZE -1 ){
+                    // 在接收窗口内，需要缓存失序分组/滑动窗口
+                    isRecv[header.seq] = true;
+                    memcpy(winBuffer[header.seq], recvbuffer, sizeof(header) + MAX_DATA_LENGTH);
+                    if(header.seq == rcvBase)
+                        // 滑动窗口
+                        moveWindow();
+                }
+                // 发送ACK，seqSize=2*winSize，肯定可以发
+                setHeader(header,ACK,header.seq,header.seq,0);
+                memcpy(sendbuffer, &header, sizeof(header));
+                if (sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
                     cout << "[FAILED]ACK发送失败" << endl;
                     return -1;
                 }
-                continue;
+                cout << "[SEND]发送ACK" << header.seq << endl;
             }
-            // 发送ACK
-            setHeader(header,ACK,rcvBase,rcvBase,0);
-            memcpy(sendbuffer, &header, sizeof(header));
-            if (sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                cout << "[FAILED]ACK发送失败" << endl;
-                return -1;
-            }
-            cout << "[SEND]发送ACK" << rcvBase << endl;
-            sendACK = true;
         }
         if (clock() - start > 30 * CLOCKS_PER_SEC) {
             cout << "[ERROR]连接超时，自动断开" << endl;
             return -1;
-        }
-        if(sendACK){
-            // 转变序号
-            rcvBase++;
-            if(rcvBase == SEQ_SIZE)
-                rcvBase = 0;     
         }
     }
 }
