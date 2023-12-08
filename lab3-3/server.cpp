@@ -243,11 +243,13 @@ bool* isRecv;
 void moveWindow(){
     Header header;
     while(isRecv[rcvBase] == true){
+        cout<<"[MOVE]滑动窗口，交付"<<rcvBase<<"号数据包"<<endl;
         memcpy(&header, winBuffer[rcvBase], sizeof(header));
         memcpy(message + mPointer, winBuffer[rcvBase] + sizeof(header), header.length);
         mPointer += header.length;
-        isRecv[rcvBase] == false;
-        rcvBase = (rcvBase+1) % SEQ_SIZE;
+        isRecv[rcvBase++] = false;
+        if(rcvBase == SEQ_SIZE)
+            rcvBase = 0;
     }
 }
 
@@ -293,7 +295,8 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
                 if(temp < rcvBase){
                     temp += SEQ_SIZE;
                 }
-                if(temp >= rcvBase && temp <= rcvBase + WINDOW_SIZE -1 ){
+                if(temp >= rcvBase && temp <= rcvBase + WINDOW_SIZE -1 && isRecv[header.seq] == false){
+                    cout << "[RECEIVE]数据包正确，缓存" << header.seq << endl;
                     // 在接收窗口内，需要缓存失序分组/滑动窗口
                     isRecv[header.seq] = true;
                     memcpy(winBuffer[header.seq], recvbuffer, sizeof(header) + MAX_DATA_LENGTH);

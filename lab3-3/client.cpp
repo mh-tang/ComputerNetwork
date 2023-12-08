@@ -317,8 +317,8 @@ int endSend(int seq) {  // 发送结束信号
     return 1;
 }
 
-clock_t start = clock();  // 计时器
-bool startFlag = true;  // 计时器开关
+clock_t *start;  // 计时器
+bool *startFlag;  // 计时器开关
 mutex mtx;  // 互斥锁
 bool exitThread = false;  // 退出接收线程
 char** sendbuffer;
@@ -335,21 +335,27 @@ unsigned __stdcall ThreadRecv(void* param){
             memcpy(&header, recvbuffer, sizeof(header));
             if (header.flag == ACK && check((u_short*)&header, sizeof(header) == 0)) {
                 // 判断ACK是否在窗口内
-                if (base > header.ack){  // ack大于base，肯定没问题，小于base，考虑回卷
-                    if((base + WINDOW_SIZE) <= (header.ack + SEQ_SIZE))  // ack在窗口外
-                        continue;                        
-                }
+                int temp = header.flag;
+                if(temp < base)
+                    temp += SEQ_SIZE;
+                if(!(temp>=base && base<=temp+WINDOW_SIZE-1))
+                    continue;
+                    
+                cout << "[RECEIVE]接受服务端ACK" << header.ack << endl;
+                
                 mtx.lock();
-                base = header.ack + 1;  // 累积确认
-                if (base == SEQ_SIZE)
-                    base = 0;
-                cout << "[RECEIVE]接受服务端ACK" << header.ack << "，窗口滑动base：" << base << "，nextSeq：" << nextSeq <<endl;
-                if(base == nextSeq)
-                    startFlag = false;
-                else{
-                    start = clock();
-                    startFlag = true;
+                startFlag[header.ack] = false;  // 确认收到ACK，关闭计时器
+                if(header.ack == base){  // 窗口滑动
+                    bool isBack = false;
+                    while(startFlag[base] == false && (base < nextSeq || !isBack)){
+                        base++;
+                        if(base == SEQ_SIZE){
+                            base = 0;
+                            isBack = true;
+                        }
+                    }
                 }
+                cout << "[RECEIVE]窗口滑动到base：" << base << endl;
                 mtx.unlock();                    
             }
             // 数据包错误什么也不做
@@ -360,40 +366,24 @@ unsigned __stdcall ThreadRecv(void* param){
 }
 
 unsigned __stdcall ThreadTimer(void* param){
+    int seq = *(int*)param;
     Header header;
     // -----超时事件-----
     while(!exitThread){
-        if (startFlag && (clock() - start > MAX_TIME*2)) {
-            cout<<"[FAILED]数据包确认超时，重传窗口所有数据包"<<endl;
-            // 确认窗口范围
-            mtx.lock();
-            int temp_Seq = nextSeq;
-            int temp_base = base;
-            int temp = temp_Seq;
-            mtx.unlock();
+        mtx.lock();
+        bool flag = startFlag[seq];
+        mtx.unlock();
+        if (flag && (clock() - start[seq] > MAX_TIME*2)) {
+            cout<<"[RESEND]数据包确认超时，重传"<<seq<<"号数据包"<<endl;
+            if (sendto(client, sendbuffer[seq], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                cout << "[FAILED]数据报" << seq << "发送失败" << endl;
+                return -1;
+            }
 
-            if (temp_base > temp_Seq)
-                temp = SEQ_SIZE;
-            for(int i=temp_base;i<temp;i++){
-                cout<<"[RESEND]重传"<<i<<"号数据包"<<endl;
-                if (sendto(client, sendbuffer[i], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                    cout << "[FAILED]数据报" << i<< "发送失败" << endl;
-                    return -1;
-                }
-            }
-            if (temp == SEQ_SIZE){
-                for(int i=0;i<temp_Seq;i++){
-                    cout<<"[RESEND]重传"<<i<<"号数据包"<<endl;
-                    if (sendto(client, sendbuffer[i], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                        cout << "[FAILED]数据报" << i<< "发送失败" << endl;
-                        return -1;
-                    }
-                }
-            }
             // 重置计时器
             mtx.lock();
-            start = clock();
-            startFlag = true;
+            start[seq] = clock();
+            startFlag[seq] = true;
             mtx.unlock();
         }
     }
@@ -409,8 +399,14 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
         sendbuffer[i] = new char[sizeof(header) + MAX_DATA_LENGTH];
 
     _beginthreadex(NULL, 0, ThreadRecv, 0, 0, NULL);  // 启动接收线程
-    _beginthreadex(NULL, 0, ThreadTimer, 0, 0, NULL);  // 启动超时线程
-
+    start = new clock_t[SEQ_SIZE];
+    startFlag = new bool[SEQ_SIZE];
+    for(int i=0;i<SEQ_SIZE;i++){
+        startFlag[i] = false;
+        int *p = new int(i);
+        _beginthreadex(NULL, 0, ThreadTimer, p, 0, NULL);  // 启动超时线程
+    }
+    
     while (true) {
         int thisTimeLength;  // 本次数据传输长度
         int temp = nextSeq;
@@ -432,6 +428,8 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
                     for (int i = 0; i < SEQ_SIZE; i++)
                         delete sendbuffer[i];
                     delete sendbuffer;
+                    delete start;
+                    delete startFlag;
                     // 结束文件传输
                     if (endSend(nextSeq) == 1)
                         return 1;
@@ -456,11 +454,9 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
                 }
 
                 mtx.lock();
-                // 如果是第一个数据包，设置计时器
-                if(base == nextSeq){
-                    start = clock();
-                    startFlag = true;
-                }
+                // 设置分组nextSeq的计时器
+                startFlag[nextSeq] = true;
+                start[nextSeq] = clock();
                 // 转变序号
                 nextSeq++;
                 if(nextSeq == SEQ_SIZE)
