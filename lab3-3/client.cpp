@@ -335,14 +335,13 @@ unsigned __stdcall ThreadRecv(void* param){
             memcpy(&header, recvbuffer, sizeof(header));
             if (header.flag == ACK && check((u_short*)&header, sizeof(header) == 0)) {
                 // 判断ACK是否在窗口内
-                int temp = header.flag;
+                int temp = header.ack;
                 if(temp < base)
                     temp += SEQ_SIZE;
-                if(!(temp>=base && base<=temp+WINDOW_SIZE-1))
+                if(!(temp>=base && base<=temp+WINDOW_SIZE-1))  // 不在窗口内，丢弃
                     continue;
                     
                 cout << "[RECEIVE]接受服务端ACK" << header.ack << endl;
-                
                 mtx.lock();
                 startFlag[header.ack] = false;  // 确认收到ACK，关闭计时器
                 if(header.ack == base){  // 窗口滑动
@@ -351,7 +350,7 @@ unsigned __stdcall ThreadRecv(void* param){
                         base++;
                         if(base == SEQ_SIZE){
                             base = 0;
-                            isBack = true;
+                            isBack = true;  // 避免死循环
                         }
                     }
                 }
@@ -383,7 +382,6 @@ unsigned __stdcall ThreadTimer(void* param){
             // 重置计时器
             mtx.lock();
             start[seq] = clock();
-            startFlag[seq] = true;
             mtx.unlock();
         }
     }

@@ -253,7 +253,7 @@ void moveWindow(){
     }
 }
 
-int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
+int receiveMessage() {  // 接收消息
     ioctlsocket(server, FIONBIO, &unblockmode);
     Header header;
     isRecv = new bool[SEQ_SIZE];
