@@ -365,24 +365,31 @@ unsigned __stdcall ThreadRecv(void* param){
 }
 
 unsigned __stdcall ThreadTimer(void* param){
-    int seq = *(int*)param;
+    // 一个timer线程处理所有的计时器
     Header header;
     // -----超时事件-----
     while(!exitThread){
         mtx.lock();
-        bool flag = startFlag[seq];
+        int tempBase = base;
         mtx.unlock();
-        if (flag && (clock() - start[seq] > MAX_TIME*2)) {
-            cout<<"[RESEND]数据包确认超时，重传"<<seq<<"号数据包"<<endl;
-            if (sendto(client, sendbuffer[seq], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                cout << "[FAILED]数据报" << seq << "发送失败" << endl;
-                return -1;
-            }
 
-            // 重置计时器
+        for(int j=0;j<WINDOW_SIZE;j++){  // 遍历窗口内每个计时器
+            int seq = (tempBase + j)%SEQ_SIZE;
             mtx.lock();
-            start[seq] = clock();
+            bool flag = startFlag[seq];
             mtx.unlock();
+            if (flag && (clock() - start[seq] > MAX_TIME*2)) {
+                cout<<"[RESEND]数据包确认超时，重传"<<seq<<"号数据包"<<endl;
+                if (sendto(client, sendbuffer[seq], (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                    cout << "[FAILED]数据报" << seq << "发送失败" << endl;
+                    return -1;
+                }
+
+                // 重置计时器
+                mtx.lock();
+                start[seq] = clock();
+                mtx.unlock();
+            }
         }
     }
     return 0;
@@ -399,11 +406,9 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
     _beginthreadex(NULL, 0, ThreadRecv, 0, 0, NULL);  // 启动接收线程
     start = new clock_t[SEQ_SIZE];
     startFlag = new bool[SEQ_SIZE];
-    for(int i=0;i<SEQ_SIZE;i++){
+    for(int i=0;i<SEQ_SIZE;i++)
         startFlag[i] = false;
-        int *p = new int(i);
-        _beginthreadex(NULL, 0, ThreadTimer, p, 0, NULL);  // 启动超时线程
-    }
+    _beginthreadex(NULL, 0, ThreadTimer, 0, 0, NULL);  // 启动超时线程
     
     while (true) {
         int thisTimeLength;  // 本次数据传输长度
