@@ -192,5 +192,28 @@ SR的接收端要做的事比GBN多一些，需要维护一个**接收窗口**�
 实验中，将序号范围设置为窗口大小的两倍，即`SEQ_SIZE = WINDOW_SIZE * 2`。在判断分组序号是否在窗口内、滑动窗口时，需要格外注意序号范围的变化。
 
 ## 运行结果
+滑动窗大小设置为8，对给定的测试文件进行测试，结果如下：
+<center>
+<table>
+  <tr>
+    <td><img src="pic/1.png" width="400"></td>
+    <td><img src="pic/2.png" width="400"></td>
+  </tr>
+  <tr>
+    <td><img src="pic/3.png" width="400"></td>
+    <td><img src="pic/h.png" width="400"></td>
+  </tr>
+</table>
+</center>
+
+文件传输正常，最终结果与原文件一致。  
+测试使用Router调节丢包率和延时，结果如下：
+<center>
+<img src="pic/r.png" width="500">
+</center>
+
+可以看到server端接收到了除13号数据包以外的其他数据包，client端相应地完成了确认。  
+而13号数据包由于丢包未确认，所以**窗口卡在13号数据包**。  
+当发生超时事件，client端重传13号数据包，收到server端的确认后，**发送窗口直接滑动到了5号数据包**，继续进行传输。
 
 ## 实验总结
