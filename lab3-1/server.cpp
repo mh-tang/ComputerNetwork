@@ -28,7 +28,7 @@ unsigned long long int mPointer;
 // 常数设置
 u_long blockmode = 0;
 u_long unblockmode = 1;
-const unsigned short MAX_DATA_LENGTH = 0x3FF;
+const unsigned short MAX_DATA_LENGTH = 0x1000;
 u_long IP = 0x7F000001;
 const u_short SOURCE_PORT = 7778;  // 源端口7778
 const u_short DES_PORT = 7776;  // 客户端端口号7776
@@ -41,7 +41,7 @@ const unsigned char OVER_ACK = 0x6;  // 00000110
 const unsigned char FIN = 0x8;  // 00001000
 const unsigned char FIN_ACK = 0xA;  // 00001010
 
-const int MAX_TIME = 0.2*CLOCKS_PER_SEC;  // 最大传输延迟时间
+const int MAX_TIME = 0.5*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 // 数据头
 struct Header {

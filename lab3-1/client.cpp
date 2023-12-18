@@ -33,7 +33,7 @@ unsigned long long int mPointer = 0;  // 下一个传输位置
 // 常量设置
 u_long unblockmode = 1;
 u_long blockmode = 0;
-const unsigned short MAX_DATA_LENGTH = 0x3FF;
+const unsigned short MAX_DATA_LENGTH = 0x1000;
 u_long IP = 0x7F000001;
 const u_short SOURCE_PORT = 7776;  // 客户端端口号：7776
 const u_short DES_PORT = 7778;  // 服务端端口号：7778
@@ -46,7 +46,7 @@ const unsigned char OVER_ACK = 0x6;  // 00000110
 const unsigned char FIN = 0x8;  // 00001000
 const unsigned char FIN_ACK = 0xA;  // 00001010
 
-const int MAX_TIME = 0.2*CLOCKS_PER_SEC;  // 最大传输延迟时间
+const int MAX_TIME = 0.5*CLOCKS_PER_SEC;  // 最大传输延迟时间
 
 // 数据头
 struct Header {
@@ -356,7 +356,7 @@ int sendMessage() {  // 发送数据，都是以MAX_DATA_LENGTH为单位发送
                     break;
                 }
             }
-            if (clock() - start > MAX_TIME) {
+            if (clock() - start > 2*MAX_TIME) {
                 cout<<"[FAILED]数据包确认超时，重传"<<endl;
                 if (sendto(client, sendbuffer, (sizeof(header)+MAX_DATA_LENGTH), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
                     cout << "[FAILED]数据报发送失败" << endl;
@@ -443,10 +443,10 @@ int disconnect() {  // 三次挥手断开连接
 
 void printLog() {  // 打印日志
     cout << "             --------------传输日志--------------" << endl;
-    cout << "报文总长度：" << mPointer << "字节，分为" << (mPointer / 1024) + 1 << "个报文段分别发送" << endl;
+    cout << "报文总长度：" << mPointer << "字节，分为" << (mPointer / MAX_DATA_LENGTH) + 1 << "个报文段分别发送" << endl;
     double t = (double)(tail - head) / freq;
     cout << "传输用时：" <<t <<"秒"<< endl;
-    cout << "报文平均往返时延为" << t / (mPointer / 1024 + 1) * 1000 << "毫秒" << endl;
+    cout << "报文平均往返时延为" << t / ((mPointer / MAX_DATA_LENGTH) + 1) * 1000 << "毫秒" << endl;
     t = (double)mPointer / t;
     cout << "传输吞吐率为" << t <<"字节每秒"<< endl;
 }
