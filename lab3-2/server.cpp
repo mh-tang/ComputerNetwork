@@ -47,6 +47,9 @@ const unsigned char OVER_ACK = 0x6;  // 00000110
 const unsigned char FIN = 0x8;  // 00001000
 const unsigned char FIN_ACK = 0xA;  // 00001010
 
+int ackCount = 0;  // 确认计数
+const int LOSS = 10000;  // 测试接收端ACK丢包，调到10000表示不丢包
+
 // 数据头
 struct Header {
     u_short checksum;  // 16位校验和
@@ -282,11 +285,18 @@ int receiveMessage() {  // 接收消息，接收到错误或冗余就重传
             // 发送ACK
             setHeader(header,ACK,rcvBase,rcvBase,0);
             memcpy(sendbuffer, &header, sizeof(header));
-            if (sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
-                cout << "[FAILED]ACK发送失败" << endl;
-                return -1;
+            // 测试接收端ACK丢包
+            if(ackCount++ == LOSS){
+                cout << "[TEST]接收端ACK丢包测试" << endl;
+                ackCount = 0;
             }
-            cout << "[SEND]发送ACK" << rcvBase << endl;
+            else{
+                if (sendto(server, sendbuffer, sizeof(header), 0, (sockaddr*)&router_addr, rlen) == SOCKET_ERROR) {
+                    cout << "[FAILED]ACK发送失败" << endl;
+                    return -1;
+                }
+                cout << "[SEND]发送ACK" << rcvBase << endl;
+            }
             sendACK = true;
         }
         if (clock() - start > 30 * CLOCKS_PER_SEC) {

@@ -47,6 +47,9 @@ const unsigned char OVER_ACK = 0x6;  // 00000110
 const unsigned char FIN = 0x8;  // 00001000
 const unsigned char FIN_ACK = 0xA;  // 00001010
 
+int ackCount = 0;  // 确认计数
+const int LOSS = 10000;  // 测试接收端ACK丢包，调到10000表示不丢包
+
 // 数据头
 struct Header {
     u_short checksum;  // 16位校验和
@@ -303,6 +306,12 @@ int receiveMessage() {  // 接收消息
                     if(header.seq == rcvBase)
                         // 滑动窗口
                         moveWindow();
+                }
+                // 测试接收端ACK丢包
+                if(ackCount++ == LOSS){
+                    cout << "[TEST]接收端ACK丢包测试" << endl;
+                    ackCount = 0;
+                    continue;
                 }
                 // 发送ACK，seqSize=2*winSize，肯定可以发
                 setHeader(header,ACK,header.seq,header.seq,0);
