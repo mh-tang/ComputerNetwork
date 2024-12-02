@@ -10,10 +10,10 @@ TARGETS = server client
 all : $(TARGETS)
 
 server : server.cpp
-	$(CC) $^ -o $@ $(CFLAGS)
+	$(CC) $^ -static -o $@ $(CFLAGS)
 
 client : client.cpp
-	$(CC) $^ -o $@ $(CFLAGS)
+	$(CC) $^ -static -o $@ $(CFLAGS)
 
 clean :
 	del /F /Q $(TARGETS)
